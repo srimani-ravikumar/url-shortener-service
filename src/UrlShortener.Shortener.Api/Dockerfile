@@ -4,7 +4,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Restore first, from project files only, so this slow layer is reused until a package changes.
-COPY Directory.Build.props nuget.config .editorconfig ./
+COPY Directory.Build.props Directory.Packages.props nuget.config .editorconfig ./
 COPY src/UrlShortener.Core/UrlShortener.Core.csproj src/UrlShortener.Core/
 COPY src/UrlShortener.Infrastructure/UrlShortener.Infrastructure.csproj src/UrlShortener.Infrastructure/
 COPY src/UrlShortener.Shortener.Api/UrlShortener.Shortener.Api.csproj src/UrlShortener.Shortener.Api/
