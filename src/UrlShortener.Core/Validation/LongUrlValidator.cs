@@ -11,7 +11,7 @@ public sealed class LongUrlValidator
     private readonly string _shortHost;
     private readonly int _maxLength;
 
-    /// <param name="shortUrlBase">Public base URL of the short link service, e.g. http://short.url.</param>
+    /// <param name="shortUrlBase">Public base URL of the short link service, e.g. https://trysmartly.co.</param>
     /// <param name="maxLength">Longest accepted URL, in characters.</param>
     public LongUrlValidator(Uri shortUrlBase, int maxLength = DefaultMaxLength)
     {

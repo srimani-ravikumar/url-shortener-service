@@ -3,6 +3,9 @@
 The complete picture of the system on one page. Solid arrows carry requests and data; dotted arrows carry telemetry to the observability stack.
 
 ```mermaid
+---
+title: trysmartly.co (Distributed URL Shortener System)
+---
 flowchart TB
     client(["Client<br/>browser or API consumer"])
 
@@ -53,6 +56,8 @@ flowchart TB
     loki -.-> grafana
 ```
 
+Table definitions, relationships and Redis keys for the data stores are in [db-schema.md](db-schema.md).
+
 ## Services
 
 | Service | Responsibility |
@@ -64,5 +69,6 @@ flowchart TB
 
 ## Where to go next
 
-* Request flows, schema and deep dives: [design.md](design.md)
+* Request flows, APIs and deep dives: [design.md](design.md)
+* Cassandra tables and Redis keys behind the data stores above: [db-schema.md](db-schema.md)
 * Why each technology was chosen: [tech-decisions.md](tech-decisions.md)

@@ -29,7 +29,7 @@ This endpoint takes a long URL (and optional parameters) and generates a corresp
 
 ```json
 {
-  "short_url": "http://short.url/abC123",
+  "short_url": "https://trysmartly.co/abC123",
   "long_url": "https://example.com/very/long/url/that/needs/shortening",
   "expires_at": "2024-12-31T23:59:59Z",
   "created_at": "2024-08-10T10:30:00Z"

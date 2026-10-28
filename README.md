@@ -1,4 +1,4 @@
-# URL Shortener Service
+# URL Shortener Service (trysmartly.co)
 
 A URL shortener I built to answer one question: **what does a design look like when the boring parts are allowed to fail?** Not to replace bit.ly.
 
