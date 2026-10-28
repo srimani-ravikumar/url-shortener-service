@@ -1,0 +1,23 @@
+### Manual requests for the Redirector API (VS Code REST Client / Visual Studio .http support).
+###
+### 1. Start the stack:   docker compose -f deploy/docker-compose.yml up -d
+### 2. Create a link with the Shortener API (see UrlShortener.Shortener.Api.http) and copy its short code.
+### 3. Run the API:       dotnet run --project src/UrlShortener.Redirector.Api --launch-profile http
+###
+### The editor follows redirects by default; to see the 302 itself, turn that off (REST Client setting
+### "rest-client.followRedirect") or use: curl -i http://localhost:5136/<code>
+
+@baseUrl = http://localhost:5136
+@shortCode = PASTE-A-SHORT-CODE
+
+### Follow a short link: 302 with Location and Cache-Control
+GET {{baseUrl}}/{{shortCode}}
+
+### Unknown code: 404
+GET {{baseUrl}}/does-not-exist
+
+### Not a possible short code: 404 (answered without any lookup)
+GET {{baseUrl}}/favicon.ico
+
+### An expired link answers 410 Gone: create one with expires_at a few seconds ahead, wait, then request it
+GET {{baseUrl}}/{{shortCode}}

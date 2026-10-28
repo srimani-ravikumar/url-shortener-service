@@ -1,0 +1,12 @@
+# Keep the build context small and stop local build output or secrets from entering an image.
+**/bin/
+**/obj/
+**/.vs/
+.git/
+tests/
+scripts/
+deploy/
+docs/
+**/*.user
+**/.env
+**/appsettings.Development.json

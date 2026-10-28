@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch or pull request makes the older run pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+
+jobs:
+  # Compile with warnings as errors and run every NUnit test project, including the integration tests.
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Without this, integration tests are skipped (not failed) when Cassandra or Redis is unreachable.
+      REQUIRE_INTEGRATION_STACK: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # The integration tests talk to the real Cassandra and Redis on localhost.
+      - name: Start Cassandra and Redis
+        shell: pwsh
+        run: ./scripts/Start-Dev.ps1 -InfraOnly
+
+      - name: Restore
+        run: dotnet restore UrlShortener.slnx
+
+      - name: Build
+        run: dotnet build UrlShortener.slnx --no-restore -c Release -warnaserror
+
+      - name: Test
+        run: >
+          dotnet test UrlShortener.slnx --no-build -c Release
+          --logger "trx;LogFileName=results.trx"
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
+          --blame-hang-timeout 120s
+
+      - name: Upload test results and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/**
+          if-no-files-found: warn
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --no-color --tail 200
+
+  # Builds all three service images (nothing is pushed in v1), starts the whole stack behind Nginx with
+  # three redirector replicas, and runs the end-to-end scenarios. The disruptive scenarios are left out.
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the images and start the stack
+        shell: pwsh
+        run: ./scripts/Start-Dev.ps1 -Build -Scale 3
+
+      - name: Run the scenarios
+        shell: pwsh
+        run: ./scripts/Invoke-Scenario.ps1 -All
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --no-color --tail 200
+
+      - name: Stop the stack
+        if: always()
+        shell: pwsh
+        run: ./scripts/Stop-Dev.ps1

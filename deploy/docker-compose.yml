@@ -1,0 +1,218 @@
+name: urlshortener
+
+services:
+  cassandra:
+    image: cassandra:5.0
+    container_name: urlshortener-cassandra
+    # NONE lifts the 2038 expiry cap so TTLs up to 20 years work; only safe on a fresh data dir.
+    entrypoint:
+      - sh
+      - -c
+      - "sed -i 's/^storage_compatibility_mode:.*/storage_compatibility_mode: NONE/' /etc/cassandra/cassandra.yaml && exec docker-entrypoint.sh cassandra -f"
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_CLUSTER_NAME: urlshortener
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  cassandra-init:
+    image: cassandra:5.0
+    container_name: urlshortener-cassandra-init
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./cassandra/schema.cql:/schema.cql:ro
+    command: ["cqlsh", "cassandra", "-f", "/schema.cql"]
+    restart: "no"
+
+  redis:
+    image: redis:7.4
+    container_name: urlshortener-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---- Application: `docker compose up -d --build` runs everything; http://localhost:8080 is the only public address ----
+  # Settings come from deploy/.env (copy .env.example). The services publish no host ports and can be scaled,
+  # e.g. `docker compose up -d --scale redirector-api=3`.
+
+  shortener-api:
+    build:
+      context: ..
+      dockerfile: src/UrlShortener.Shortener.Api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      cassandra-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      Cassandra__ContactPoints: cassandra
+      Redis__ConnectionString: redis:6379
+      Shortener__ShortUrlBase: http://localhost:${PUBLIC_PORT:-8080}
+      # Empty on purpose when unset: the service then refuses to start and says the secret is missing.
+      Shortener__FeistelSecret: ${FEISTEL_SECRET:-}
+      # Trust the X-Forwarded-* headers from nginx (the only thing that can reach this container).
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  redirector-api:
+    build:
+      context: ..
+      dockerfile: src/UrlShortener.Redirector.Api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      cassandra-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      Cassandra__ContactPoints: cassandra
+      Redis__ConnectionString: redis:6379
+      # Local dev stack: lets scripts/Invoke-Scenario.ps1 see which replica answered (X-Served-By header).
+      Redirector__ExposeInstanceId: "true"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  analytics-worker:
+    build:
+      context: ..
+      dockerfile: src/UrlShortener.AnalyticsWorker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      cassandra-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      Cassandra__ContactPoints: cassandra
+      Redis__ConnectionString: redis:6379
+      # appsettings.json binds the health port to localhost, which is unreachable from outside the container.
+      Urls: http://+:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: urlshortener-nginx
+    restart: unless-stopped
+    depends_on:
+      shortener-api:
+        condition: service_healthy
+      redirector-api:
+        condition: service_healthy
+      analytics-worker:
+        condition: service_healthy
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${PUBLIC_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---- Observability stack: add `--profile observability` ----
+  # To make the services above send traces, metrics and logs to it, set
+  # OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 in deploy/.env (and recreate them).
+  # Images are pinned: newer major versions change their configuration formats.
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    container_name: urlshortener-otel-collector
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    depends_on:
+      - tempo
+      - loki
+    volumes:
+      - ./otel/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: urlshortener-tempo
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./otel/tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"
+
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: urlshortener-loki
+    profiles: ["observability"]
+    ports:
+      - "3100:3100"
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: urlshortener-prometheus
+    profiles: ["observability"]
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: urlshortener-grafana
+    profiles: ["observability"]
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+    environment:
+      # Local development only: anonymous viewing, and a well-known admin password.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./otel/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./otel/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+volumes:
+  cassandra-data:
+  redis-data:

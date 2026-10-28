@@ -1,0 +1,120 @@
+{
+  "uid": "urlshortener-overview",
+  "title": "URL Shortener",
+  "tags": ["urlshortener"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Redirect latency (ms). Target: p99 under 50 ms",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 50 } ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"redirector-api\", http_route=\"{shortCode}\"}[1m]))) * 1000" },
+        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"redirector-api\", http_route=\"{shortCode}\"}[1m]))) * 1000" },
+        { "refId": "C", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"redirector-api\", http_route=\"{shortCode}\"}[1m]))) * 1000" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Redirects per second, by result",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{result}}", "expr": "sum by (result) (rate(urlshortener_redirects_total[1m]))" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Redirect cache hit ratio",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "hit ratio", "expr": "sum(rate(urlshortener_cache_lookups_total{result=\"hit\"}[1m])) / clamp_min(sum(rate(urlshortener_cache_lookups_total[1m])), 0.0001)" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Server errors (HTTP 5xx) per second, by service",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{service_name}}", "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[1m]))" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Create-link latency p99 (ms)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"shortener-api\", http_route=~\".*shorten\"}[1m]))) * 1000" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Links created per second, by outcome",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{outcome}}", "expr": "sum by (outcome) (rate(urlshortener_shorten_requests_total[1m]))" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Clicks written to the database per second",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "flushed", "expr": "sum(rate(urlshortener_clicks_flushed_total[1m]))" },
+        { "refId": "B", "legendFormat": "links that failed (put back)", "expr": "sum(rate(urlshortener_clicks_flush_failures_total[1m]))" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "HTTP requests in the last minute, by service",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{service_name}}", "expr": "sum by (service_name) (increase(http_server_request_duration_seconds_count[1m]))", "instant": true }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "logs",
+      "title": "Logs (all services)",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "expr": "{service_name=~\"shortener-api|redirector-api|analytics-worker\"}" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+### Manual requests for the Shortener API (VS Code REST Client / Visual Studio .http support).
+###
+### 1. Start the stack:       docker compose -f deploy/docker-compose.yml up -d
+### 2. Create a dev user:     ./scripts/New-DevUser.ps1      (prints the user id and API key)
+### 3. Run the API:           dotnet run --project src/UrlShortener.Shortener.Api --launch-profile http
+### 4. Paste the key and user id below, then send the requests.
+
+@baseUrl = http://localhost:5221
+@apiKey = PASTE-YOUR-API-KEY
+@userId = PASTE-YOUR-USER-ID
+
+### Create a short link (generated code, expires in one year by default)
+POST {{baseUrl}}/api/v1/shorten
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "long_url": "https://example.com/very/long/url/that/needs/shortening"
+}
+
+### Create a short link with a custom alias and an expiry date
+POST {{baseUrl}}/api/v1/shorten
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "long_url": "https://www.my-ecommerce-store.com/products/summer-collection-2025",
+  "custom_alias": "summer-sale",
+  "expires_at": "2030-09-01T23:59:59Z"
+}
+
+### Same alias again: 409 Conflict
+POST {{baseUrl}}/api/v1/shorten
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "long_url": "https://example.com/another",
+  "custom_alias": "summer-sale"
+}
+
+### Invalid URL: 400 with the field name in "errors"
+POST {{baseUrl}}/api/v1/shorten
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "long_url": "javascript:alert(1)"
+}
+
+### Reserved alias: 400
+POST {{baseUrl}}/api/v1/shorten
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "long_url": "https://example.com/a",
+  "custom_alias": "admin"
+}
+
+### Expiry in the past: 400
+POST {{baseUrl}}/api/v1/shorten
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "long_url": "https://example.com/a",
+  "expires_at": "2020-01-01T00:00:00Z"
+}
+
+### Missing API key: 401
+POST {{baseUrl}}/api/v1/shorten
+Content-Type: application/json
+
+{
+  "long_url": "https://example.com/a"
+}
+
+### Click statistics for one of your links
+GET {{baseUrl}}/api/v1/analytics/summer-sale
+X-Api-Key: {{apiKey}}
+
+### Statistics for a link that does not exist: 404
+GET {{baseUrl}}/api/v1/analytics/does-not-exist
+X-Api-Key: {{apiKey}}
+
+### List your links, newest first (use next_page_token from the response as page_token for the next page)
+GET {{baseUrl}}/api/v1/users/{{userId}}/urls?page_size=2
+X-Api-Key: {{apiKey}}
+
+### Another user's list: 403
+GET {{baseUrl}}/api/v1/users/someone-else/urls
+X-Api-Key: {{apiKey}}
+
+### OpenAPI document (Development only)
+GET {{baseUrl}}/openapi/v1.json

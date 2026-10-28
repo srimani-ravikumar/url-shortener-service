@@ -1,0 +1,18 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+TestResults/
+coverage/
+*.trx
+
+## Secrets / local config
+.env
+deploy/.env
+scripts/.dev-*.json
+
+## OS / editor
+.DS_Store
+Thumbs.db
