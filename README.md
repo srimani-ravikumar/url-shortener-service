@@ -4,6 +4,8 @@ A URL shortener I built to answer one question: **what does a design look like w
 
 If you're reviewing this as a hiring manager, architect, or senior engineer: this README is for you. I'll keep it short, and every claim below links to something you can run or read.
 
+> **Start here: [the full system architecture on one page](docs/02-design/architecture.md)** (diagram, services, data stores, observability).
+
 ## Why I Built This..
 
 Most shorteners are a hash and a table. The hard questions only show up in production:
@@ -51,7 +53,8 @@ Needs Docker and PowerShell (5.1 or 7+).
 | If you want to know... | Read |
 |---|---|
 | What the system must do and the capacity maths | [docs/01-requirements/requirements.md](docs/01-requirements/requirements.md) |
-| The architecture diagram, APIs, schema and deep dives | [docs/02-design/design.md](docs/02-design/design.md) |
+| The architecture diagram on one page | [docs/02-design/architecture.md](docs/02-design/architecture.md) |
+| Request flows, APIs, schema and deep dives | [docs/02-design/design.md](docs/02-design/design.md) |
 | **Why** each technology was chosen, with the cost I accepted | [docs/02-design/tech-decisions.md](docs/02-design/tech-decisions.md) |
 | How it was built, phase by phase, with deviations and results | [docs/03-implementation/implementation-plan.md](docs/03-implementation/implementation-plan.md) |
 | Every requirement checked against evidence, and the gaps | [Phase 11 of the plan](docs/03-implementation/implementation-plan.md#phase-11--verification-against-requirements) |
