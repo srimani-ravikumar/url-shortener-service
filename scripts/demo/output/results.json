@@ -1,0 +1,130 @@
+{
+  "email": "demo-mvtq5e7u@example.com",
+  "results": [
+    {
+      "name": "sign-up shows \"Check your inbox\"",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "verification mail arrives in the inbox",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "API key is shown once (43 characters)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "mail link token is removed from the address bar",
+      "ok": true,
+      "detail": "http://localhost:8080/app/verify"
+    },
+    {
+      "name": "short link created with the chosen alias",
+      "ok": true,
+      "detail": "http://localhost:8080/demo-mvtq5e7u"
+    },
+    {
+      "name": "duplicate alias is refused",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "reserved alias is refused",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "3 generated short links created",
+      "ok": true,
+      "detail": "2LLttnJ, 48XDpH5, 15hhqOV"
+    },
+    {
+      "name": "generated codes are all different",
+      "ok": true,
+      "detail": "2LLttnJ, 48XDpH5, 15hhqOV"
+    },
+    {
+      "name": "generated codes differ from the alias link",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every generated short link redirects (302) to its own video",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "short link redirects (302) to the long URL",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "statistics show 5 clicks",
+      "ok": true,
+      "detail": "shown: 5"
+    },
+    {
+      "name": "recovery mail arrives",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "recovery issues a different key",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "old key is rejected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "new key signs in and the earlier link is listed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "key replacement issues a different key",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "session keeps working after replacing the key",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "mail outage is reported to the user",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "delete button is disabled until the email is typed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "account deleted and the user is signed out",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the deleted account's short link answers 404",
+      "ok": true,
+      "detail": "status 404"
+    },
+    {
+      "name": "the deleted account's key is rejected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "signed-out visit to /app/links goes to sign-in",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

@@ -23,6 +23,13 @@ const alias = `demo-${stamp}`; // unique per run, so click counts never depend o
 const results = [];
 let caption = '';
 
+// raj shanmani podcast used as long URLs for the generated-code step.
+const NEUROSCIENCE_VIDEOS = [
+  'https://www.youtube.com/watch?v=4Vz6L8B73i4',
+  'https://www.youtube.com/watch?v=JCOb1w_LTOg',
+  'https://www.youtube.com/watch?v=ke3Pb9_oMrg',
+];
+
 // ---------------------------------------------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------------------------------------------
@@ -149,7 +156,7 @@ try {
     `<h1 style="font-size:44px;margin:0 0 16px">trysmartly.co</h1>
      <p style="font-size:26px;margin:0 0 24px;color:#cbd5e1">URL shortener - end-to-end demo on the local stack</p>
      <ol style="font-size:22px;line-height:1.7;color:#e5e7eb">
-       <li>Sign up by email and get an API key</li><li>Create short links, aliases and errors</li>
+       <li>Sign up by email and get an API key</li><li>Create short links, aliases, generated codes and errors</li>
        <li>Follow a link and see the click statistics</li><li>Lost key: recover by email</li>
        <li>Replace the key</li><li>Mail server down</li><li>Delete the account and all its links</li></ol>
      <p style="font-size:18px;color:#94a3b8">Real Cassandra, Redis, nginx, three services, Angular app. Mail goes to MailPit (local inbox).</p>`,
@@ -207,6 +214,50 @@ try {
   check('reserved alias is refused', true);
   await sleep(2200);
 
+  // 2b -----------------------------------------------------------------------------------------------------------
+  // No alias: every code comes from the ID generator, so each long URL must get a different code.
+  await say('Now without an alias: codes come from the ID generator', 2000);
+  const generated = [];
+  let previousShortUrl = shortUrl;
+  for (const [i, longUrl] of NEUROSCIENCE_VIDEOS.entries()) {
+    await say(`Generated link ${i + 1} of ${NEUROSCIENCE_VIDEOS.length}`, 600);
+    await page.locator('#long-url').fill('');
+    await page.locator('#custom-alias').fill('');
+    await typeInto('#long-url', longUrl);
+    await page.getByRole('button', { name: 'Shorten' }).click();
+    const created = await waitFor(async () => {
+      const text = (await page.locator('.result a').innerText().catch(() => '')).trim();
+      return text && text !== previousShortUrl ? text : null;
+    }, 10000, 250);
+    previousShortUrl = created;
+    generated.push({ longUrl, shortUrl: created, code: created?.split('/').pop() });
+    await say(`${created}`, 2200);
+  }
+  const codes = generated.map((g) => g.code);
+  check(`${generated.length} generated short links created`, generated.every((g) => g.code), codes.join(', '));
+  check('generated codes are all different', new Set(codes).size === codes.length, codes.join(', '));
+  check('generated codes differ from the alias link', !codes.includes(alias));
+
+  let allRedirect = true;
+  for (const g of generated) {
+    const r = await context.request.get(g.shortUrl, { maxRedirects: 0 });
+    allRedirect &&= r.status() === 302 && r.headers()['location'] === g.longUrl;
+  }
+  check('every generated short link redirects (302) to its own video', allRedirect);
+
+  await page.goto(`${APP}/app/links`);
+  await page.getByRole('heading', { name: 'My links' }).waitFor();
+  await say('All links of this user, each with its own code', 3500);
+  await card(
+    `<h1 style="font-size:34px;margin:0 0 20px">Generated codes are unique</h1>
+     <table style="font-size:22px;line-height:1.8;border-collapse:collapse">
+     ${generated
+       .map((g) => `<tr><td style="padding-right:28px;color:#fbbf24;font-family:monospace">${g.shortUrl}</td><td style="color:#cbd5e1">${g.longUrl}</td></tr>`)
+       .join('')}</table>
+     <p style="font-size:20px;color:#94a3b8;margin-top:20px">${new Set(codes).size} links, ${new Set(codes).size} different codes</p>`,
+    6000,
+  );
+
   // 3 ------------------------------------------------------------------------------------------------------------
   // The heading shows before the list has loaded, so wait for the entry itself.
   const linkListed = () =>
@@ -233,7 +284,8 @@ try {
   await page.goto(`${APP}/app/links`);
   await page.getByRole('heading', { name: 'My links' }).waitFor();
   await say(`Opened the link ${clicks} times. Clicks are counted by a background worker (about 10 s)`, 2500);
-  await page.getByRole('link', { name: 'Clicks' }).first().click();
+  // The list also holds the generated links, so pick the aliased link's row, not just the first one.
+  await page.locator('li.link', { hasText: alias }).getByRole('link', { name: 'Clicks' }).click();
   await page.locator('[data-testid=total-clicks]').waitFor();
   let counted = null;
   for (let i = 0; i < 10 && counted !== String(clicks); i++) {
