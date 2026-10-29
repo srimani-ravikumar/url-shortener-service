@@ -25,7 +25,9 @@ flowchart TB
     end
 
     subgraph app["Application Services (Stateless, scale by adding replicas)"]
-        shortener["<b>Shortener API (write)</b><br/><br/>POST /api/v1/shorten<br/>GET /api/v1/analytics/{short_code}<br/>GET /api/v1/users/{user_id}/urls<br/><br/>API Key Auth · Rate Limiting"]
+        web["<b>Web UI (Angular, static files)</b><br/><br/>GET /app/*<br/>Sign in · Sign up · Links · Statistics · Account"]
+
+        shortener["<b>Shortener API (write)</b><br/><br/>POST /api/v1/shorten<br/>GET /api/v1/analytics/{short_code}<br/>GET /api/v1/users/{user_id}/urls<br/>POST /api/v1/signup · /recover · /verify<br/>GET · DELETE /api/v1/users/me · POST .../api-key/rotate<br/><br/>API Key Auth · Rate Limiting"]
 
         redirector["<b>Redirector API (read), N replicas</b><br/><br/>GET /{short_code}<br/><br/>Returns: 302 / 404 / 410"]
 
@@ -33,10 +35,12 @@ flowchart TB
     end
 
     subgraph data["Data Stores"]
-        redis[("<b>Redis</b><br/><br/>URL Cache<br/>ID Counter (INCR, AOF)<br/>Click Buffer")]
+        redis[("<b>Redis</b><br/><br/>URL Cache<br/>ID Counter (INCR, AOF)<br/>Click Buffer<br/>Mail Cooldowns")]
 
-        cassandra[("<b>Cassandra</b><br/><br/>url_mappings <br/>urls_by_user<br/>url_clicks <br/> url_last_access<br/>users <br/> users_by_api_key<br/>id_counter_checkpoint")]
+        cassandra[("<b>Cassandra</b><br/><br/>url_mappings <br/>urls_by_user<br/>url_clicks <br/> url_last_access<br/>users <br/> users_by_api_key <br/> users_by_email <br/> email_tokens<br/>id_counter_checkpoint")]
     end
+
+    smtp["<b>SMTP Server</b><br/>Sign-up and recovery mails<br/>(MailPit in local dev)"]
 
     subgraph obs["Observability Stack"]
         otel["OpenTelemetry Collector"]
@@ -48,11 +52,13 @@ flowchart TB
 
     client -->|"HTTP"| nginx
 
+    nginx -->|"/app/*"| web
     nginx -->|"/api/v1/*"| shortener
     nginx -->|"/{short_code}"| redirector
 
-    shortener -->|"next ID (INCR)"| redis
-    shortener -->|"API key lookup, insert IF NOT EXISTS,<br/>read analytics and user links"| cassandra
+    shortener -->|"next ID (INCR),<br/>mail cooldown (SET NX)"| redis
+    shortener -->|"API key lookup, insert IF NOT EXISTS,<br/>accounts and email tokens,<br/>read analytics and user links"| cassandra
+    shortener -->|"SMTP: verification links"| smtp
 
     redirector -->|"cache lookup, record click"| redis
     redirector -->|"read mapping on cache miss"| cassandra
@@ -82,10 +88,12 @@ Table definitions, relationships and Redis keys for the data stores are in [db-s
 
 | Service | Responsibility |
 |---|---|
-| Load Balancer (Nginx) | Single entry point; path-based routing; load balancing |
-| Shortener API (write) | `POST /api/v1/shorten`, `GET /api/v1/analytics/{short_code}`, `GET /api/v1/users/{user_id}/urls` |
+| Load Balancer (Nginx) | Single entry point; path-based routing (`/app/*`, `/api/v1/*`, `/{short_code}`); load balancing |
+| Web UI (Angular) | Static single-page app under `/app/`: sign in with an API key, sign up and recover by email, create and list links, view statistics, replace the key, delete the account |
+| Shortener API (write) | Links: `POST /api/v1/shorten`, `GET /api/v1/analytics/{short_code}`, `GET /api/v1/users/{user_id}/urls`. Accounts: `POST /api/v1/signup`, `/recover`, `/verify`, `GET` and `DELETE /api/v1/users/me`, `POST /api/v1/users/me/api-key/rotate` |
 | Redirector API (read) | `GET /{short_code}`, records clicks in Redis |
 | Analytics Worker (background) | Flushes buffered clicks from Redis to Cassandra; checkpoints the ID counter |
+| SMTP Server | Delivers the sign-up and key recovery mails (MailPit catches them in local development) |
 
 ## Where to go next
 

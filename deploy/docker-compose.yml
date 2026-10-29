@@ -63,12 +63,23 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_healthy
     environment:
       Cassandra__ContactPoints: cassandra
       Redis__ConnectionString: redis:6379
       Shortener__ShortUrlBase: http://localhost:${PUBLIC_PORT:-8080}
       # Empty on purpose when unset: the service then refuses to start and says the secret is missing.
       Shortener__FeistelSecret: ${FEISTEL_SECRET:-}
+      # Where the mailed sign-up links point (the public address users reach in their browser).
+      Account__WebBaseUrl: http://localhost:${PUBLIC_PORT:-8080}
+      # Mail server. The defaults use the local MailPit container; set SMTP_* in deploy/.env for a real one.
+      Smtp__Host: ${SMTP_HOST:-mailpit}
+      Smtp__Port: ${SMTP_PORT:-1025}
+      Smtp__UseStartTls: ${SMTP_USE_STARTTLS:-false}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-no-reply@trysmartly.co}
       # Trust the X-Forwarded-* headers from nginx (the only thing that can reach this container).
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -126,6 +137,31 @@ services:
       retries: 6
       start_period: 20s
 
+  # The Angular app, served under /app/ (nginx below forwards that path here). No host port.
+  web:
+    build:
+      context: ../web
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Local mail catcher: receives the sign-up mails instead of sending them. Read them at http://localhost:8025.
+  # For real delivery point SMTP_* in deploy/.env at a real server and drop this service.
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    container_name: urlshortener-mailpit
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   nginx:
     image: nginx:1.27-alpine
     container_name: urlshortener-nginx
@@ -136,6 +172,8 @@ services:
       redirector-api:
         condition: service_healthy
       analytics-worker:
+        condition: service_healthy
+      web:
         condition: service_healthy
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro

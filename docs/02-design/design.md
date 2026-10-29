@@ -1,6 +1,6 @@
 ## 1. Core APIs
 
-**Authentication:** Management endpoints (`POST /api/v1/shorten`, `GET /api/v1/analytics/...`, `GET /api/v1/users/...`) require an API key in the `X-Api-Key` header. The caller's `user_id` is derived from the key. The redirect endpoint (`GET /{short_code}`) is public and unversioned.
+**Authentication:** Management endpoints (`POST /api/v1/shorten`, `GET /api/v1/analytics/...`, `GET /api/v1/users/...`) require an API key in the `X-Api-Key` header. The caller's `user_id` is derived from the key. Only the account endpoints that hand out a key (`signup`, `recover`, `verify`, see 1.5) and the redirect endpoint (`GET /{short_code}`, public and unversioned) need no key.
 
 ### 1.1 Create Short URL
 
@@ -110,6 +110,40 @@ Lists the links created by a user, newest first. The caller's API key must belon
   "next_page_token": "AAEAAA..."
 }
 ```
+
+### 1.5 Accounts and API Keys
+
+Users get an API key by proving they can read an email address. The Angular app (served under `/app/`) is a client of these endpoints; any other client can use them the same way.
+
+| Endpoint | Auth | Behaviour |
+|---|---|---|
+| `POST /api/v1/signup` `{"email"}` | none | Mails a verification link. Always `202` for a valid address, so addresses cannot be probed; an address that already has an account gets a "use recovery" mail instead |
+| `POST /api/v1/recover` `{"email"}` | none | Mails a link that replaces a lost key, if the address has an account; always `202` |
+| `POST /api/v1/verify` `{"token"}` | none | Spends the token: creates the account (sign-up) or replaces the key (recovery). Returns `{user_id, email, api_key}` once. Unknown, expired or used token: `400`; address registered meanwhile: `409` |
+| `GET /api/v1/users/me` | key | The caller's account; also the way to check a key |
+| `POST /api/v1/users/me/api-key/rotate` | key | New key; the current one stops working at once |
+| `DELETE /api/v1/users/me` | key | Deletes the account **and every link it owns** (`204`); those links then answer `404` |
+
+```mermaid
+sequenceDiagram
+    participant U as User (browser)
+    participant S as Shortener API
+    participant M as SMTP server
+    U->>S: POST /signup {email}
+    S->>M: mail with a link to /app/verify (token in the fragment)
+    S-->>U: 202 (same answer for any address)
+    U->>S: POST /verify {token}
+    S-->>U: user_id + api_key (shown once)
+    U->>S: POST /shorten (X-Api-Key)
+```
+
+Rules:
+- **Tokens** are 32 random bytes; only their SHA-256 is stored, with a 24-hour TTL, and a token works once. The link carries it in the URL *fragment*, which browsers never send to a server, so it stays out of logs and `Referer` headers.
+- **Keys** are 32 random bytes shown once; only the SHA-256 is stored. One active key per user.
+- **One account per email** (trimmed, lower-case), enforced by `INSERT ... IF NOT EXISTS` on `users_by_email`.
+- **Abuse limits:** per client address, 5 sign-up/recovery requests and 30 verify attempts per hour; per address, one mail per minute.
+- **Deleting an account** removes each link's row, cache entry and statistics, then the account. It can be repeated if it fails part-way.
+- **Browser storage:** the Angular app keeps the key in `sessionStorage` (gone when the tab closes) and sends it only to `/api/`.
 
 ## 2. High-Level Design
 

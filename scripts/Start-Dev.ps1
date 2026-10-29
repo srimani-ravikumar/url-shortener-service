@@ -85,11 +85,12 @@ do {
 if ($state -ne 'exited 0') { throw "The Cassandra schema job did not finish successfully (state: $state)." }
 
 if (-not $InfraOnly) {
-    foreach ($service in @('shortener-api', 'redirector-api', 'analytics-worker')) {
+    foreach ($service in @('shortener-api', 'redirector-api', 'analytics-worker', 'web')) {
         foreach ($id in (Get-ServiceContainer -Service $service)) {
             if (-not (Wait-ContainerHealthy -Container $id -TimeoutSeconds 120)) { throw "$service ($id) did not become healthy in time." }
         }
     }
+    if (-not (Wait-ContainerHealthy -Container 'urlshortener-mailpit' -TimeoutSeconds 60)) { throw 'The MailPit container did not become healthy in time.' }
     if (-not (Wait-Healthy -TimeoutSeconds 60)) { throw "$($config.BaseUrl)/health/ready did not answer 200 in time." }
 }
 
@@ -101,6 +102,8 @@ if ($InfraOnly) {
     Write-Host '  Redis      localhost:6379'
 } else {
     Write-Host "  Entry point   $($config.BaseUrl)   (POST /api/v1/shorten, GET /{code}, GET /health/ready)"
+    Write-Host "  Web app       $($config.BaseUrl)/app/"
+    Write-Host '  Mail inbox    http://localhost:8025   (MailPit: sign-up and recovery mails arrive here)'
     Write-Host "  Redirectors   $Scale replica(s)"
 }
 if ($Observability) {
