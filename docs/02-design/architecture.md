@@ -4,17 +4,21 @@ The complete picture of the system on one page. Solid arrows carry requests and 
 
 ```mermaid
 ---
-title: trysmartly.co (Distributed URL Shortener System)
+title: 𝐭𝐫𝐲𝐬𝐦𝐚𝐫𝐭𝐥𝐲.𝐜𝐨 (𝐃𝐢𝐬𝐭𝐫𝐢𝐛𝐮𝐭𝐞𝐝 𝐔𝐑𝐋 𝐒𝐡𝐨𝐫𝐭𝐞𝐧𝐞𝐫 𝐒𝐲𝐬𝐭𝐞𝐦)
 config:
   flowchart:
     htmlLabels: false
     curve: linear
     nodeSpacing: 65
     rankSpacing: 90
-    wrappingWidth: 400
+    wrappingWidth: 450
 ---
 flowchart TB
+    %% Unlinked nodes go on the top row in declaration order, so the author comes first (left)
+    author["Designed by <b>Srimani</b>"]:::author
     client(["<b>Client</b><br/>Browser / API Consumer"])
+
+    legend["<b>Side Note</b><br/>───▶  Solid: requests and data<br/>┄┄┄▶  Dotted: telemetry to the observability stack"]:::legend
 
     subgraph edge["Entry Point"]
         nginx["<b>Nginx Reverse Proxy</b><br/>Single Public Address · Path Routing · Load Balancing"]
@@ -67,6 +71,9 @@ flowchart TB
     tempo -.-> grafana
     prom -.-> grafana
     loki -.-> grafana
+
+    classDef legend fill:#fff,stroke:#888,stroke-dasharray:4 3
+    classDef author fill:#fff,stroke:#888,color:#333,stroke-dasharray:4 3
 ```
 
 Table definitions, relationships and Redis keys for the data stores are in [db-schema.md](db-schema.md).
