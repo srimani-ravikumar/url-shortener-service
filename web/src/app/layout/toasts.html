@@ -1,0 +1,13 @@
+<div class="stack">
+  @for (toast of toasts.toasts(); track toast.id) {
+    <div
+      class="toast"
+      [class.error]="toast.kind === 'error'"
+      [class.success]="toast.kind === 'success'"
+      [attr.role]="toast.kind === 'error' ? 'alert' : 'status'"
+    >
+      <span class="message">{{ toast.message }}</span>
+      <button type="button" class="close" aria-label="Dismiss" (click)="toasts.dismiss(toast.id)">&times;</button>
+    </div>
+  }
+</div>

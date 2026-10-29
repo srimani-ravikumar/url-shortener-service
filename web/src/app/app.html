@@ -1,0 +1,6 @@
+<div class="progress" [class.active]="loading.busy()" role="progressbar" aria-label="Loading" [attr.aria-hidden]="!loading.busy()"></div>
+<app-header />
+<main class="container page">
+  <router-outlet />
+</main>
+<app-toasts />

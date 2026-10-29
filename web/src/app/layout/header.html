@@ -1,0 +1,18 @@
+<header class="bar">
+  <div class="container bar-inner">
+    <a class="brand" routerLink="/">trysmartly.co</a>
+
+    @if (auth.signedIn()) {
+      <nav class="nav" aria-label="Main">
+        <a routerLink="/links" routerLinkActive="active" ariaCurrentWhenActive="page">My links</a>
+        <a routerLink="/account" routerLinkActive="active" ariaCurrentWhenActive="page">Account</a>
+      </nav>
+      <div class="session">
+        @if (auth.account(); as account) {
+          <span class="email">{{ account.email }}</span>
+        }
+        <button type="button" class="btn" (click)="signOut()">Sign out</button>
+      </div>
+    }
+  </div>
+</header>
