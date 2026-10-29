@@ -5,6 +5,8 @@
 - **Custom Aliases:** Allow users to create custom short codes (if available).
 - **Expiration:** Support link expiration with default and custom TTLs.
 - **Analytics:** Track basic click counts for each short URL.
+- **Accounts:** A user gets an API key by proving they own an email address (sign-up by emailed link). A user who lost the key can get a new one the same way, can replace the key at any time, and can delete the account, which also deletes all of their links.
+- **Web UI:** A browser application for everything a user does: sign up or sign in, create short links (with optional alias and expiry), list them, see their click statistics, replace the key and delete the account.
 
 ## Non-Functional Requirements
 
@@ -13,6 +15,7 @@
 - **Uniqueness:** Each short code maps to exactly one long URL, and short codes never collide.
 - **Scalability:** Should handle a large number of read and write requests (100:1 read-to-write ratio).
 - **Durability:** Once a short URL is created, the mapping must not be lost.
+- **Security and privacy:** API keys and email tokens are stored only as hashes and shown to the user once. Sign-up and recovery never reveal whether an address has an account. Email addresses are not written to logs. Sign-up, recovery and verification are rate limited per client address, and each address receives at most one mail per minute.
 
 ## Capacity Estimation
 

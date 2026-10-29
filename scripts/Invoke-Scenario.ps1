@@ -38,7 +38,8 @@ Import-Module (Join-Path $PSScriptRoot 'DevCommon.psm1') -Force
 $config = Get-DevConfig
 
 $allScenarios = @('HappyPath', 'CustomAlias', 'Validation', 'DefaultTtl', 'Expiration', 'Auth', 'NotFound', 'RateLimit',
-    'ClickCounting', 'CacheConsistency', 'UserLinks', 'LoadBalancing')
+    'ClickCounting', 'CacheConsistency', 'UserLinks', 'LoadBalancing', 'Signup', 'SignupEnumeration', 'Rotate', 'Recover',
+    'DeleteAccount')
 $disruptiveScenarios = @('RedisOutage', 'CounterReseed', 'Durability')
 
 if (-not $Name -and -not $All) {
@@ -443,6 +444,150 @@ function Test-Durability {
     $after = Invoke-Api -Method GET -Path "/api/v1/analytics/$($link.Code)" -ApiKey $user.api_key
     Assert-Equal 'the user and the link are still known (analytics returns 200)' $after.Status 200
     Assert-True 'the stored click count survived' ([long]$after.Json.total_clicks -ge 1) "total_clicks $($after.Json.total_clicks)"
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Accounts: these read the mails from MailPit (http://localhost:8025 in the local stack)
+# ---------------------------------------------------------------------------------------------------------------
+function New-UniqueEmail([string] $Prefix) { "$Prefix-$((Get-RandomBase62 -Length 10).ToLowerInvariant())@example.com" }
+
+function Request-Mail([string] $Path, [string] $Email) {
+    Invoke-Api -Method POST -Path $Path -Body @{ email = $Email }
+}
+
+# Spends an emailed token. Returns the response; the credentials are in .Json.
+function Use-Token([string] $Token) {
+    Invoke-Api -Method POST -Path '/api/v1/verify' -Body @{ token = $Token }
+}
+
+# Remembers an account made through the API, so cleanup can delete its rows.
+function Add-CreatedUser($Credentials) {
+    $user = [pscustomobject]@{
+        user_id      = $Credentials.user_id
+        email        = $Credentials.email
+        api_key      = $Credentials.api_key
+        api_key_hash = (Get-Sha256Hex $Credentials.api_key)
+    }
+    $script:CreatedUsers.Add($user)
+    $user
+}
+
+# After a key replacement the old hash is gone; keep the record current so cleanup removes the right row.
+function Update-UserKey($User, [string] $NewKey) {
+    $User.api_key = $NewKey
+    $User.api_key_hash = Get-Sha256Hex $NewKey
+}
+
+function Test-Signup {
+    $email = New-UniqueEmail 'signup'
+
+    Assert-Equal 'signup returns 202' (Request-Mail '/api/v1/signup' $email).Status 202
+    $mail = Wait-ForMail -To $email
+    Assert-True 'a verification mail arrives' ($null -ne $mail)
+    if (-not $mail) { return }
+    Assert-True 'the link opens the web app and keeps the token in the fragment' ($mail.Text -match '/app/verify#token=') 
+
+    $verify = Use-Token $mail.Token
+    Assert-Equal 'verify returns 200' $verify.Status 200
+    if ($verify.Status -ne 200) { return }
+    $user = Add-CreatedUser $verify.Json
+    Assert-Equal 'the response is marked no-store' $verify.Headers['cache-control'] 'no-store'
+
+    $me = Invoke-Api -Method GET -Path '/api/v1/users/me' -ApiKey $user.api_key
+    Assert-Equal 'the new key works (GET /users/me returns 200)' $me.Status 200
+    Assert-Equal 'the account has the signed-up email' $me.Json.email $email
+
+    Assert-Equal 'a second use of the token returns 400' (Use-Token $mail.Token).Status 400
+    Assert-Equal 'the new account can create links' (New-ShortLink -User $user).Response.Status 201
+}
+
+function Test-SignupEnumeration {
+    $known = New-ScenarioUser
+    $unknownEmail = New-UniqueEmail 'unknown'
+
+    $forKnown = Request-Mail '/api/v1/signup' $known.email
+    $forUnknown = Request-Mail '/api/v1/signup' $unknownEmail
+    Assert-Equal 'a known address gets 202' $forKnown.Status 202
+    Assert-Equal 'an unknown address gets 202' $forUnknown.Status 202
+    Assert-Equal 'the two responses have the same body' $forKnown.Body $forUnknown.Body
+
+    $knownMail = Wait-ForMail -To $known.email
+    Assert-True 'the known address is told it already has an account, with no token' ($knownMail -and $knownMail.Subject -match 'already have an account' -and -not $knownMail.Token)
+    $unknownMail = Wait-ForMail -To $unknownEmail
+    Assert-True 'the unknown address gets a verification token' ($unknownMail -and $unknownMail.Token)
+
+    $invalid = Request-Mail '/api/v1/signup' 'not-an-email'
+    Assert-Equal 'an invalid address returns 400' $invalid.Status 400
+    Assert-True 'the 400 names the email field' ($null -ne $invalid.Json.errors.email)
+}
+
+function Test-Rotate {
+    $user = New-ScenarioUser
+    $oldKey = $user.api_key
+
+    Assert-Equal 'rotating without a key returns 401' (Invoke-Api -Method POST -Path '/api/v1/users/me/api-key/rotate').Status 401
+    $rotate = Invoke-Api -Method POST -Path '/api/v1/users/me/api-key/rotate' -ApiKey $oldKey
+    Assert-Equal 'rotate returns 200' $rotate.Status 200
+    if ($rotate.Status -ne 200) { return }
+    Update-UserKey $user $rotate.Json.api_key
+
+    Assert-True 'the new key differs from the old one' ($rotate.Json.api_key -ne $oldKey)
+    Assert-Equal 'the old key returns 401' (Invoke-Api -Method GET -Path '/api/v1/users/me' -ApiKey $oldKey).Status 401
+    $me = Invoke-Api -Method GET -Path '/api/v1/users/me' -ApiKey $user.api_key
+    Assert-Equal 'the new key returns 200' $me.Status 200
+    Assert-Equal 'it is the same account' $me.Json.user_id $user.user_id
+}
+
+function Test-Recover {
+    $user = New-ScenarioUser
+    $oldKey = $user.api_key
+
+    Assert-Equal 'recover returns 202' (Request-Mail '/api/v1/recover' $user.email).Status 202
+    $mail = Wait-ForMail -To $user.email
+    Assert-True 'a recovery mail with a token arrives' ($mail -and $mail.Token)
+    if (-not $mail -or -not $mail.Token) { return }
+
+    $verify = Use-Token $mail.Token
+    Assert-Equal 'verify returns 200' $verify.Status 200
+    if ($verify.Status -ne 200) { return }
+    Update-UserKey $user $verify.Json.api_key
+    Assert-Equal 'it is the same account' $verify.Json.user_id $user.user_id
+    Assert-Equal 'the lost key returns 401' (Invoke-Api -Method GET -Path '/api/v1/users/me' -ApiKey $oldKey).Status 401
+    Assert-Equal 'the new key returns 200' (Invoke-Api -Method GET -Path '/api/v1/users/me' -ApiKey $user.api_key).Status 200
+
+    $stranger = New-UniqueEmail 'nobody'
+    Assert-Equal 'recover for an unknown address also returns 202' (Request-Mail '/api/v1/recover' $stranger).Status 202
+    Assert-True 'but no mail is sent to it' ($null -eq (Wait-ForMail -To $stranger -TimeoutSeconds 4))
+}
+
+function Test-DeleteAccount {
+    $user = New-ScenarioUser
+    $first = New-ShortLink -User $user
+    $second = New-ShortLink -User $user
+    if (-not $first.Code -or -not $second.Code) { Add-Result 'setup: two links' 'FAIL' "statuses $($first.Response.Status), $($second.Response.Status)"; return }
+
+    # Following the links also puts them into the Redis cache, which deleting the account must clear.
+    Assert-Equal 'the first link redirects before deleting' (Invoke-Api -Method GET -Path "/$($first.Code)").Status 302
+    Assert-Equal 'the second link redirects before deleting' (Invoke-Api -Method GET -Path "/$($second.Code)").Status 302
+
+    Assert-Equal 'deleting without a key returns 401' (Invoke-Api -Method DELETE -Path '/api/v1/users/me').Status 401
+    Assert-Equal 'deleting the account returns 204' (Invoke-Api -Method DELETE -Path '/api/v1/users/me' -ApiKey $user.api_key).Status 204
+
+    Assert-Equal 'the key returns 401 afterwards' (Invoke-Api -Method GET -Path '/api/v1/users/me' -ApiKey $user.api_key).Status 401
+    Assert-Equal 'the first link now returns 404' (Invoke-Api -Method GET -Path "/$($first.Code)").Status 404
+    Assert-Equal 'the second link now returns 404' (Invoke-Api -Method GET -Path "/$($second.Code)").Status 404
+    Assert-Equal 'the cache entry of the first link is gone' ((Invoke-Redis exists "url:$($first.Code)") -join '') 0
+
+    # The address is free again, so the same person can sign up anew and gets a different account.
+    Assert-Equal 'the address can sign up again' (Request-Mail '/api/v1/signup' $user.email).Status 202
+    $mail = Wait-ForMail -To $user.email
+    if (-not $mail -or -not $mail.Token) { Add-Result 'a new verification mail arrives' 'FAIL' 'no mail'; return }
+    $verify = Use-Token $mail.Token
+    Assert-Equal 'the new account is created' $verify.Status 200
+    if ($verify.Status -eq 200) {
+        [void](Add-CreatedUser $verify.Json)
+        Assert-True 'it is a different account' ($verify.Json.user_id -ne $user.user_id)
+    }
 }
 
 # ---------------------------------------------------------------------------------------------------------------

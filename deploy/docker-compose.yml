@@ -73,6 +73,10 @@ services:
       Shortener__FeistelSecret: ${FEISTEL_SECRET:-}
       # Where the mailed sign-up links point (the public address users reach in their browser).
       Account__WebBaseUrl: http://localhost:${PUBLIC_PORT:-8080}
+      # Hourly limits per client address. The local stack is looser than the service defaults (5 and 30)
+      # so the end-to-end scenarios can run repeatedly; leave these unset in production.
+      Account__MailRequestsPerHour: ${ACCOUNT_MAIL_REQUESTS_PER_HOUR:-100}
+      Account__VerifyRequestsPerHour: ${ACCOUNT_VERIFY_REQUESTS_PER_HOUR:-300}
       # Mail server. The defaults use the local MailPit container; set SMTP_* in deploy/.env for a real one.
       Smtp__Host: ${SMTP_HOST:-mailpit}
       Smtp__Port: ${SMTP_PORT:-1025}

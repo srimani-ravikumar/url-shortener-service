@@ -7,6 +7,7 @@
 
     Settings can be overridden with environment variables:
       DEV_BASE_URL             public entry point (default: http://localhost:<PUBLIC_PORT from deploy/.env, else 8080>)
+      DEV_MAIL_URL             MailPit web address (default: http://localhost:<MAILPIT_UI_PORT from deploy/.env, else 8025>)
       DEV_CASSANDRA_CONTAINER  default urlshortener-cassandra
       DEV_REDIS_CONTAINER      default urlshortener-redis
 #>
@@ -20,18 +21,28 @@ function Get-EnvOrDefault([string] $Name, [string] $Default) {
 
 # Follows PUBLIC_PORT from deploy/.env so the scripts keep working when the port is changed there.
 function Get-DefaultBaseUrl {
-    $port = '8080'
+    "http://localhost:$(Get-EnvFilePort 'PUBLIC_PORT' '8080')"
+}
+
+function Get-DefaultMailUrl {
+    "http://localhost:$(Get-EnvFilePort 'MAILPIT_UI_PORT' '8025')"
+}
+
+# Reads a port number from deploy/.env (a missing or empty setting gives the default).
+function Get-EnvFilePort([string] $Setting, [string] $Default) {
+    $port = $Default
     $envFile = Join-Path $script:RepoRoot 'deploy/.env'
     if (Test-Path $envFile) {
-        $line = Get-Content $envFile | Where-Object { $_ -match '^\s*PUBLIC_PORT\s*=\s*\d+\s*$' } | Select-Object -First 1
+        $line = Get-Content $envFile | Where-Object { $_ -match "^\s*$Setting\s*=\s*\d+\s*$" } | Select-Object -First 1
         if ($line -and $line -match '(\d+)\s*$') { $port = $Matches[1] }
     }
-    "http://localhost:$port"
+    $port
 }
 
 $script:Config = [pscustomobject]@{
     RepoRoot           = $script:RepoRoot
     BaseUrl            = (Get-EnvOrDefault 'DEV_BASE_URL' (Get-DefaultBaseUrl)).TrimEnd('/')
+    MailUrl            = (Get-EnvOrDefault 'DEV_MAIL_URL' (Get-DefaultMailUrl)).TrimEnd('/')
     ComposeFile        = Join-Path $script:RepoRoot 'deploy/docker-compose.yml'
     EnvFile            = Join-Path $script:RepoRoot 'deploy/.env'
     EnvExampleFile     = Join-Path $script:RepoRoot 'deploy/.env.example'
@@ -293,6 +304,34 @@ function New-DevUserRecord {
     [pscustomobject]@{ user_id = $userId; email = $email; api_key = $apiKey; api_key_hash = $hash }
 }
 
+function Wait-ForMail {
+    <#
+    .SYNOPSIS
+        Waits for a mail to an address to show up in MailPit (the local mail catcher) and returns the newest one,
+        or $null if none arrives in time.
+    .OUTPUTS
+        Subject, Text, and Token (the value after "#token=" in the mail, or $null).
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $To,
+        [int] $TimeoutSeconds = 20
+    )
+
+    $query = [uri]::EscapeDataString("to:$To")
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $found = Invoke-Api -Method GET -Path "$($script:Config.MailUrl)/api/v1/search?query=$query"
+        if ($found.Status -eq 200 -and $found.Json -and @($found.Json.messages).Count -gt 0) {
+            $message = Invoke-Api -Method GET -Path "$($script:Config.MailUrl)/api/v1/message/$(@($found.Json.messages)[0].ID)"
+            $token = $null
+            if ($message.Json.Text -match '#token=([A-Za-z0-9_-]+)') { $token = $Matches[1] }
+            return [pscustomobject]@{ Subject = $message.Json.Subject; Text = $message.Json.Text; Token = $token }
+        }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $deadline)
+    $null
+}
+
 Export-ModuleMember -Function Get-DevConfig, Get-DevHttpClient, Invoke-Api, Invoke-Docker, Invoke-Cql, Invoke-Redis,
     Invoke-Compose, Get-ServiceContainer, Wait-Healthy, Wait-ContainerHealthy, Write-Result, Get-RandomBase62,
-    Read-JsonFile, Write-JsonFile, Get-DevUsers, Get-Sha256Hex, New-DevUserRecord
+    Read-JsonFile, Write-JsonFile, Get-DevUsers, Get-Sha256Hex, New-DevUserRecord, Wait-ForMail

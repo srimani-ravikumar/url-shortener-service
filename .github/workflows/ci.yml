@@ -72,8 +72,37 @@ jobs:
         if: failure()
         run: docker compose -f deploy/docker-compose.yml logs --no-color --tail 200
 
-  # Builds all three service images (nothing is pushed in v1), starts the whole stack behind Nginx with
-  # three redirector replicas, and runs the end-to-end scenarios. The disruptive scenarios are left out.
+  # The Angular app: install from the lock file, lint, unit tests and the production build.
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:ci
+
+      - name: Production build
+        run: npm run build
+
+  # Builds all four images (nothing is pushed in v1), starts the whole stack behind Nginx with three
+  # redirector replicas plus the web app and MailPit, and runs the end-to-end scenarios (the account
+  # scenarios read their mails from MailPit). The disruptive scenarios are left out.
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30
