@@ -5,34 +5,45 @@ The complete picture of the system on one page. Solid arrows carry requests and 
 ```mermaid
 ---
 title: trysmartly.co (Distributed URL Shortener System)
+config:
+  flowchart:
+    htmlLabels: false
+    curve: linear
+    nodeSpacing: 65
+    rankSpacing: 90
+    wrappingWidth: 400
 ---
 flowchart TB
-    client(["Client<br/>browser or API consumer"])
+    client(["<b>Client</b><br/>Browser / API Consumer"])
 
-    subgraph edge["Entry point"]
-        nginx["Nginx reverse proxy<br/>single public address<br/>routes by path, spreads load"]
+    subgraph edge["Entry Point"]
+        nginx["<b>Nginx Reverse Proxy</b><br/>Single Public Address · Path Routing · Load Balancing"]
     end
 
-    subgraph app["Application services (stateless, scale by adding replicas)"]
-        shortener["Shortener API (write)<br/>POST /api/v1/shorten<br/>GET /api/v1/analytics/{short_code}<br/>GET /api/v1/users/{user_id}/urls<br/>API key auth, rate limiting"]
-        redirector["Redirector API (read), N replicas<br/>GET /{short_code}<br/>302 / 404 / 410"]
-        worker["Analytics Worker<br/>flushes buffered clicks<br/>checkpoints the ID counter"]
+    subgraph app["Application Services (Stateless, scale by adding replicas)"]
+        shortener["<b>Shortener API (write)</b><br/><br/>POST /api/v1/shorten<br/>GET /api/v1/analytics/{short_code}<br/>GET /api/v1/users/{user_id}/urls<br/><br/>API Key Auth · Rate Limiting"]
+
+        redirector["<b>Redirector API (read), N replicas</b><br/><br/>GET /{short_code}<br/><br/>Returns: 302 / 404 / 410"]
+
+        worker["<b>Analytics Worker</b><br/><br/>Flush Buffered Clicks<br/>Checkpoint ID Counter"]
     end
 
-    subgraph data["Data stores"]
-        redis[("Redis<br/>URL cache, ID counter (AOF),<br/>click buffer")]
-        cassandra[("Cassandra<br/>url_mappings, urls_by_user,<br/>url_clicks, url_last_access,<br/>users, users_by_api_key,<br/>id_counter_checkpoint")]
+    subgraph data["Data Stores"]
+        redis[("<b>Redis</b><br/><br/>URL Cache<br/>ID Counter (INCR, AOF)<br/>Click Buffer")]
+
+        cassandra[("<b>Cassandra</b><br/><br/>url_mappings <br/>urls_by_user<br/>url_clicks <br/> url_last_access<br/>users <br/> users_by_api_key<br/>id_counter_checkpoint")]
     end
 
-    subgraph obs["Observability stack"]
+    subgraph obs["Observability Stack"]
         otel["OpenTelemetry Collector"]
-        tempo["Tempo<br/>traces"]
-        prom["Prometheus<br/>metrics"]
-        loki["Loki<br/>logs"]
-        grafana["Grafana<br/>dashboards"]
+        tempo["<b>Tempo</b><br/>Distributed Traces"]
+        prom["<b>Prometheus</b><br/>Metrics"]
+        loki["<b>Loki</b><br/>Logs"]
+        grafana["<b>Grafana</b><br/>Dashboards"]
     end
 
     client -->|"HTTP"| nginx
+
     nginx -->|"/api/v1/*"| shortener
     nginx -->|"/{short_code}"| redirector
 
@@ -48,9 +59,11 @@ flowchart TB
     shortener -.->|"OTLP"| otel
     redirector -.->|"OTLP"| otel
     worker -.->|"OTLP"| otel
+
     otel -.-> tempo
     otel -.-> prom
     otel -.-> loki
+
     tempo -.-> grafana
     prom -.-> grafana
     loki -.-> grafana
