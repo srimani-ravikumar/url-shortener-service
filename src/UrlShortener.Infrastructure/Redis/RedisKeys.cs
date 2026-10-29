@@ -17,4 +17,7 @@ public sealed class RedisKeys(string prefix)
 
     /// <summary>When a link was last clicked (Unix milliseconds), not yet flushed.</summary>
     public string LastAccess(string shortCode) => $"{prefix}last:{shortCode}";
+
+    /// <summary>A running cooldown (for example "one mail per address per minute").</summary>
+    public string Cooldown(string key) => $"{prefix}cooldown:{key}";
 }

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Seeds dev users and API keys directly into Cassandra (v1 has no sign-up API). Local dev only.
+    Seeds dev users and API keys directly into Cassandra, skipping the email sign-up. Local dev only.
 .DESCRIPTION
     Stores only the lowercase-hex SHA-256 of each API key in users_by_api_key.
     Raw keys are written to scripts/.dev-users.json (git-ignored) for the other dev scripts and manual testing.

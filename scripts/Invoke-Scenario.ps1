@@ -463,7 +463,7 @@ function Remove-ScenarioData {
     }
     foreach ($user in $script:CreatedUsers) {
         [void](Invoke-Cql ("DELETE FROM urls_by_user WHERE user_id = '$($user.user_id)'; DELETE FROM users WHERE user_id = '$($user.user_id)'; " +
-                "DELETE FROM users_by_api_key WHERE api_key_hash = '$($user.api_key_hash)';"))
+                "DELETE FROM users_by_api_key WHERE api_key_hash = '$($user.api_key_hash)'; DELETE FROM users_by_email WHERE email = '$($user.email)';"))
     }
     Write-Host "Deleted $($codes.Count) link(s) and $($script:CreatedUsers.Count) user(s) created by the scenarios."
 }

@@ -96,6 +96,18 @@ public sealed class UrlMappingRepository(CassandraConnection connection, ILogger
         return new PagedResult<UserUrl>(items, nextToken);
     }
 
+    public async Task DeleteAsync(string shortCode, CancellationToken cancellationToken = default)
+    {
+        var context = await connection.GetContextAsync(cancellationToken);
+        await context.ExecuteAsync(context.Statements.DeleteMapping.Bind(shortCode), cancellationToken);
+    }
+
+    public async Task DeleteUserListAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var context = await connection.GetContextAsync(cancellationToken);
+        await context.ExecuteAsync(context.Statements.DeleteUserUrls.Bind(userId), cancellationToken);
+    }
+
     // The link itself is already stored and works. If only this second write fails, the link is just
     // missing from the owner's list, so log it instead of failing a request that did succeed.
     private async Task AddToUserListAsync(

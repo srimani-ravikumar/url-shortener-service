@@ -12,13 +12,26 @@ Cassandra is modelled query-first: one table per access pattern, data denormaliz
 erDiagram
     users {
         text user_id PK "partition key"
-        text email
+        text email "normalized: trimmed, lower-case"
         timestamp created_at
+        text api_key_hash "SHA-256 hex of the current key"
     }
 
     users_by_api_key {
         text api_key_hash PK "SHA-256 hex of the raw key"
         text user_id
+    }
+
+    users_by_email {
+        text email PK "partition key"
+        text user_id
+    }
+
+    email_tokens {
+        text token_hash PK "SHA-256 hex of the emailed token"
+        text purpose "signup or recover"
+        text email
+        timestamp created_at
     }
 
     url_mappings {
@@ -54,6 +67,7 @@ erDiagram
     }
 
     users ||..o{ users_by_api_key : "authenticates via"
+    users ||..|| users_by_email : "owns the address"
     users ||..o{ url_mappings : "owns"
     users ||..o{ urls_by_user : "lists"
     url_mappings ||..|| urls_by_user : "same link, two views"
@@ -72,6 +86,9 @@ erDiagram
 | 5 | Read click statistics | `url_clicks`, `url_last_access` | `short_code` | Shortener |
 | 6 | Add flushed clicks | `url_clicks`, `url_last_access` | `short_code` | Analytics Worker |
 | 7 | Save or load the ID counter high-water mark | `id_counter_checkpoint` | `name` | Analytics Worker, startup of Shortener |
+| 8 | Claim an email address (one account per address) | `users_by_email` | `INSERT ... IF NOT EXISTS` | Shortener |
+| 9 | Find an account by email or id | `users_by_email`, `users` | `email`, `user_id` | Shortener |
+| 10 | Save, then spend, an email verification token | `email_tokens` | `token_hash` | Shortener |
 
 ### 1.2 Table notes
 
@@ -94,9 +111,15 @@ erDiagram
 **`url_last_access`**
 - Kept separate from `url_clicks` because counter tables cannot hold regular columns.
 
-**`users` / `users_by_api_key`**
-- Two tables for two lookups: `users` by id, `users_by_api_key` by key hash.
-- Only the lowercase-hex SHA-256 of the API key is stored; the raw key never reaches the database.
+**`users` / `users_by_api_key` / `users_by_email`**
+- Three tables for three lookups: `users` by id, `users_by_api_key` by key hash, `users_by_email` by address.
+- Only the lowercase-hex SHA-256 of the API key is stored; the raw key never reaches the database. `users.api_key_hash` repeats the current hash so rotating or deleting a key can find and remove its `users_by_api_key` row. One active key per user.
+- `users_by_email` is written first, with `IF NOT EXISTS`: that conditional insert is what guarantees one account per address.
+
+**`email_tokens`**
+- Holds a pending verification. Only the SHA-256 of the token is stored; the token itself exists only in the mail.
+- Written `USING TTL` (24 hours by default), so unused tokens disappear by themselves.
+- Spending a token is `DELETE ... IF EXISTS`: of two simultaneous requests with the same token only one is applied, so a token works once.
 
 **`id_counter_checkpoint`**
 - One row per counter (`name = 'short_code'`). If Redis loses the counter, it is re-seeded to `value + safety gap` (see section 2.3).
@@ -157,11 +180,12 @@ flowchart LR
 
 | Key pattern | Type | Value | TTL | Written by | Read / removed by |
 |---|---|---|---|---|---|
-| `url:{short_code}` | String | `{expiresAtUnixMs}\|{longUrl}` | `min(remaining lifetime, 24h)` | Redirector (on cache miss) | Redirector |
+| `url:{short_code}` | String | `{expiresAtUnixMs}\|{longUrl}` | `min(remaining lifetime, 24h)` | Redirector (on cache miss) | Redirector; Shortener (`DEL` when an account is deleted) |
 | `clicks:{short_code}` | String (int) | Clicks since the last flush | none | Redirector (`INCR`), Worker (restore with `INCRBY`) | Worker (`GETDEL`) |
 | `last:{short_code}` | String (int) | Last click, Unix ms | none | Redirector, Worker (restore, only if absent) | Worker (`GETDEL`) |
 | `clicks:dirty` | Set | Short codes with pending clicks | none | Redirector (`SADD`), Worker (restore) | Worker (`SPOP` in batches) |
 | `id:counter` | String (int) | Last issued ID | none | Shortener (`INCR`, re-seed script at startup) | Worker (checkpoint read) |
+| `cooldown:mail:{sha256(email)}` | String | `1` | 60 s (configurable) | Shortener (`SET NX EX`) | expires by itself |
 
 ### 2.2 Notes per key
 

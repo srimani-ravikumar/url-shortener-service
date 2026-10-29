@@ -35,4 +35,12 @@ public sealed class ClickRepository(CassandraConnection connection) : IClickRepo
             clickRow?.GetValue<long>("click_count") ?? 0,
             lastAccessRow?.GetValue<DateTimeOffset?>("last_accessed"));
     }
+
+    public async Task DeleteAsync(string shortCode, CancellationToken cancellationToken = default)
+    {
+        var context = await connection.GetContextAsync(cancellationToken);
+
+        await context.ExecuteAsync(context.Statements.DeleteClicks.Bind(shortCode), cancellationToken);
+        await context.ExecuteAsync(context.Statements.DeleteLastAccess.Bind(shortCode), cancellationToken);
+    }
 }

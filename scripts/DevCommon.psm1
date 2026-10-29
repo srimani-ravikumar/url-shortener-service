@@ -271,7 +271,7 @@ function Get-Sha256Hex([string] $Value) {
 function New-DevUserRecord {
     <#
     .SYNOPSIS
-        Creates a user straight in Cassandra (v1 has no sign-up API) and returns user_id, email, api_key, api_key_hash.
+        Creates a dev user straight in Cassandra (skipping the email sign-up) and returns user_id, email, api_key, api_key_hash.
         Only the hash of the key is stored in the database.
     #>
     param(
@@ -285,8 +285,10 @@ function New-DevUserRecord {
     $hash = Get-Sha256Hex $apiKey
 
     # Every interpolated value is generated or pattern-validated above (GUID, hex, [A-Za-z0-9._-]).
-    [void](Invoke-Cql ("INSERT INTO users (user_id, email, created_at) VALUES ('$userId', '$email', toTimestamp(now())); " +
-            "INSERT INTO users_by_api_key (api_key_hash, user_id) VALUES ('$hash', '$userId');"))
+    # Same rows as a real sign-up: the key hash is also kept on the user, and the email is claimed.
+    [void](Invoke-Cql ("INSERT INTO users (user_id, email, created_at, api_key_hash) VALUES ('$userId', '$email', toTimestamp(now()), '$hash'); " +
+            "INSERT INTO users_by_api_key (api_key_hash, user_id) VALUES ('$hash', '$userId'); " +
+            "INSERT INTO users_by_email (email, user_id) VALUES ('$email', '$userId');"))
 
     [pscustomobject]@{ user_id = $userId; email = $email; api_key = $apiKey; api_key_hash = $hash }
 }

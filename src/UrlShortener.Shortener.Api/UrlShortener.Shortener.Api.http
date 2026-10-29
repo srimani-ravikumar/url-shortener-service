@@ -94,3 +94,41 @@ X-Api-Key: {{apiKey}}
 
 ### OpenAPI document (Development only)
 GET {{baseUrl}}/openapi/v1.json
+
+### ---- Accounts (the sign-up mail goes to MailPit once Phase 15 adds it; for now check the Smtp settings) ----
+
+### Ask for a sign-up mail: always 202, whether or not the address is known
+POST {{baseUrl}}/api/v1/signup
+Content-Type: application/json
+
+{
+  "email": "you@example.com"
+}
+
+### Spend the token from the mail link (the part after #token=): returns user_id and api_key once
+POST {{baseUrl}}/api/v1/verify
+Content-Type: application/json
+
+{
+  "token": "PASTE-THE-TOKEN-FROM-THE-MAIL"
+}
+
+### Lost key: ask for a recovery mail (then spend its token with /verify)
+POST {{baseUrl}}/api/v1/recover
+Content-Type: application/json
+
+{
+  "email": "you@example.com"
+}
+
+### Who am I? Also the way to check that a key works
+GET {{baseUrl}}/api/v1/users/me
+X-Api-Key: {{apiKey}}
+
+### Replace your key: returns the new key once; the old one stops working
+POST {{baseUrl}}/api/v1/users/me/api-key/rotate
+X-Api-Key: {{apiKey}}
+
+### Delete your account AND all your links (cannot be undone)
+DELETE {{baseUrl}}/api/v1/users/me
+X-Api-Key: {{apiKey}}

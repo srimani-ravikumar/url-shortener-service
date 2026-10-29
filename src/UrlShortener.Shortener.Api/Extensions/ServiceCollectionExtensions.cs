@@ -9,6 +9,7 @@ using UrlShortener.Core.Validation;
 using UrlShortener.Infrastructure;
 using UrlShortener.Shortener.Api.Authentication;
 using UrlShortener.Shortener.Api.Configuration;
+using UrlShortener.Shortener.Api.Email;
 using UrlShortener.Shortener.Api.Services;
 
 namespace UrlShortener.Shortener.Api.Extensions;
@@ -28,11 +29,19 @@ internal static class ServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.Configure<ExpiryOptions>(configuration.GetSection("Expiry"));
+        services.AddOptions<AccountOptions>()
+            .Bind(configuration.GetSection(AccountOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddOptions<SmtpOptions>()
+            .Bind(configuration.GetSection(SmtpOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         services.AddUrlShortenerInfrastructure(configuration);
         services.AddDomainServices();
         services.AddApiKeyAuthentication();
-        services.AddShortenRateLimiting();
+        services.AddApiRateLimiting();
 
         return services;
     }
@@ -53,6 +62,9 @@ internal static class ServiceCollectionExtensions
 
         services.AddSingleton<IShortenService, ShortenService>();
         services.AddSingleton<ILinkQueryService, LinkQueryService>();
+        services.AddSingleton<EmailAddressValidator>();
+        services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        services.AddSingleton<IAccountService, AccountService>();
         services.AddHostedService<CounterRecoveryService>();
     }
 
@@ -66,7 +78,7 @@ internal static class ServiceCollectionExtensions
             .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
     }
 
-    private static void AddShortenRateLimiting(this IServiceCollection services)
+    private static void AddApiRateLimiting(this IServiceCollection services)
     {
         services.AddRateLimiter(limiter =>
         {
@@ -92,6 +104,12 @@ internal static class ServiceCollectionExtensions
                 });
             });
 
+            // Account endpoints need no key, so the only identity is the client address.
+            limiter.AddPolicy(RateLimiting.AccountMailPolicy, httpContext =>
+                PerHourPerAddress(httpContext, "mail", options => options.MailRequestsPerHour));
+            limiter.AddPolicy(RateLimiting.AccountVerifyPolicy, httpContext =>
+                PerHourPerAddress(httpContext, "verify", options => options.VerifyRequestsPerHour));
+
             limiter.OnRejected = async (context, cancellationToken) =>
             {
                 var httpContext = context.HttpContext;
@@ -110,10 +128,28 @@ internal static class ServiceCollectionExtensions
                     {
                         Status = StatusCodes.Status429TooManyRequests,
                         Title = "Too many requests",
-                        Detail = "You are creating links too quickly. Wait a moment and try again.",
+                        Detail = "You are sending requests too quickly. Wait a moment and try again.",
                     },
                 });
             };
+        });
+    }
+
+    // One bucket per client address and kind of request, refilled once an hour.
+    private static RateLimitPartition<string> PerHourPerAddress(
+        HttpContext httpContext,
+        string kind,
+        Func<AccountOptions, int> limitPerHour)
+    {
+        var limit = limitPerHour(httpContext.RequestServices.GetRequiredService<IOptions<AccountOptions>>().Value);
+
+        return RateLimitPartition.GetTokenBucketLimiter($"{kind}:{httpContext.Connection.RemoteIpAddress}", _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = limit,
+            TokensPerPeriod = limit,
+            ReplenishmentPeriod = TimeSpan.FromHours(1),
+            QueueLimit = 0,
+            AutoReplenishment = true,
         });
     }
 }

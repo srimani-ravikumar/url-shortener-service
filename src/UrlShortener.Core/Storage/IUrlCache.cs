@@ -13,4 +13,10 @@ public interface IUrlCache
 
     /// <summary>Caches a link for <paramref name="ttl"/>; a zero or negative ttl caches nothing.</summary>
     Task SetAsync(string shortCode, CachedUrl url, TimeSpan ttl, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes a cached link. Unlike reads and writes this is NOT best-effort: it throws when the cache is
+    /// unreachable, because a deleted link must stop redirecting.
+    /// </summary>
+    Task RemoveAsync(string shortCode, CancellationToken cancellationToken = default);
 }

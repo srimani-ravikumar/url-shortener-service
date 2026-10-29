@@ -21,6 +21,8 @@ public abstract class IntegrationTestBase
     private readonly List<string> _shortCodes = [];
     private readonly List<string> _userIds = [];
     private readonly List<string> _apiKeyHashes = [];
+    private readonly List<string> _emails = [];
+    private readonly List<string> _tokenHashes = [];
 
     protected ServiceProvider Services { get; private set; } = null!;
 
@@ -88,11 +90,22 @@ public abstract class IntegrationTestBase
         foreach (var userId in _userIds)
         {
             await ExecuteCqlAsync("DELETE FROM urls_by_user WHERE user_id = ?", userId);
+            await ExecuteCqlAsync("DELETE FROM users WHERE user_id = ?", userId);
         }
 
         foreach (var hash in _apiKeyHashes)
         {
             await ExecuteCqlAsync("DELETE FROM users_by_api_key WHERE api_key_hash = ?", hash);
+        }
+
+        foreach (var email in _emails)
+        {
+            await ExecuteCqlAsync("DELETE FROM users_by_email WHERE email = ?", email);
+        }
+
+        foreach (var tokenHash in _tokenHashes)
+        {
+            await ExecuteCqlAsync("DELETE FROM email_tokens WHERE token_hash = ?", tokenHash);
         }
 
         await ExecuteCqlAsync("DELETE FROM id_counter_checkpoint WHERE name = ?", CheckpointName);
@@ -119,6 +132,22 @@ public abstract class IntegrationTestBase
     {
         var hash = "it-hash-" + Guid.NewGuid().ToString("N");
         _apiKeyHashes.Add(hash);
+        return hash;
+    }
+
+    /// <summary>An email address that is unique to this test run; its claim row is deleted when the fixture finishes.</summary>
+    protected string NewEmail()
+    {
+        var email = $"it-{Guid.NewGuid():N}@example.test";
+        _emails.Add(email);
+        return email;
+    }
+
+    /// <summary>A token hash that is unique to this test run; its row is deleted when the fixture finishes.</summary>
+    protected string NewTokenHash()
+    {
+        var hash = "it-token-" + Guid.NewGuid().ToString("N");
+        _tokenHashes.Add(hash);
         return hash;
     }
 

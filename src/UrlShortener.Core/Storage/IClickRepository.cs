@@ -14,4 +14,7 @@ public interface IClickRepository
         CancellationToken cancellationToken = default);
 
     Task<ClickStats> GetAsync(string shortCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes the stored statistics of a link. Does nothing if there are none.</summary>
+    Task DeleteAsync(string shortCode, CancellationToken cancellationToken = default);
 }

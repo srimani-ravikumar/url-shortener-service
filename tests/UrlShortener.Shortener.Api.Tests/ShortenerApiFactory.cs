@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using UrlShortener.Core.ShortCodes;
 using UrlShortener.Core.Storage;
+using UrlShortener.Shortener.Api.Email;
 using UrlShortener.TestSupport;
 
 namespace UrlShortener.Shortener.Api.Tests;
@@ -21,6 +22,7 @@ internal sealed class ShortenerApiFactory : WebApplicationFactory<Program>
 {
     public const string FeistelSecret = "test-feistel-secret-0123456789";
     public const string ShortUrlBase = "http://short.test";
+    public const string WebBaseUrl = "http://web.test";
 
     public FakeUrlMappingRepository Links { get; } = new();
 
@@ -31,6 +33,16 @@ internal sealed class ShortenerApiFactory : WebApplicationFactory<Program>
     public FakeIdCounter Counter { get; } = new();
 
     public FakeCheckpointStore Checkpoints { get; } = new();
+
+    public FakeEmailTokenStore Tokens { get; } = new();
+
+    public FakeCooldownStore Cooldowns { get; } = new();
+
+    public FakeUrlCache Cache { get; } = new();
+
+    public FakeClickBuffer ClickBuffer { get; } = new();
+
+    public FakeEmailSender Mail { get; } = new();
 
     public TestTimeProvider Time { get; } = new(new DateTimeOffset(2026, 10, 28, 9, 0, 0, TimeSpan.Zero));
 
@@ -47,6 +59,7 @@ internal sealed class ShortenerApiFactory : WebApplicationFactory<Program>
     {
         ["Shortener:ShortUrlBase"] = ShortUrlBase,
         ["Shortener:FeistelSecret"] = FeistelSecret,
+        ["Account:WebBaseUrl"] = WebBaseUrl,
     };
 
     /// <summary>Generates the codes the API should produce for counter values (same secret as the API under test).</summary>
@@ -64,6 +77,11 @@ internal sealed class ShortenerApiFactory : WebApplicationFactory<Program>
             services.Replace<IClickRepository>(Clicks);
             services.Replace<IIdCounter>(Counter);
             services.Replace<IIdCounterCheckpointStore>(Checkpoints);
+            services.Replace<IEmailTokenStore>(Tokens);
+            services.Replace<ICooldownStore>(Cooldowns);
+            services.Replace<IUrlCache>(Cache);
+            services.Replace<IClickBuffer>(ClickBuffer);
+            services.Replace<IEmailSender>(Mail);
             services.Replace<TimeProvider>(Time);
         });
     }

@@ -52,3 +52,42 @@ public sealed record UserUrlItem(string ShortCode, string LongUrl, DateTimeOffse
 /// <param name="Items">The links on this page.</param>
 /// <param name="NextPageToken">Pass as page_token to get the next page; null on the last page.</param>
 public sealed record UserUrlsResponse(IReadOnlyList<UserUrlItem> Items, string? NextPageToken);
+
+/// <summary>Payload for asking for a sign-up or recovery mail.</summary>
+public sealed record EmailRequest
+{
+    /// <summary>The address to send the link to (at most 254 characters).</summary>
+    public string? Email { get; init; }
+
+    // The address is personal data and must not end up in the action-argument logs.
+    /// <inheritdoc />
+    public override string ToString() => nameof(EmailRequest);
+}
+
+/// <summary>Payload for spending an emailed token.</summary>
+public sealed record VerifyRequest
+{
+    /// <summary>The token from the link in the mail.</summary>
+    public string? Token { get; init; }
+
+    // The token is a secret and must not end up in the action-argument logs.
+    /// <inheritdoc />
+    public override string ToString() => nameof(VerifyRequest);
+}
+
+/// <summary>A newly issued API key.</summary>
+/// <param name="UserId">The user's id.</param>
+/// <param name="Email">The account's address.</param>
+/// <param name="ApiKey">The key to send as X-Api-Key. It is shown only once and cannot be looked up later.</param>
+public sealed record CredentialsResponse(string UserId, string Email, string ApiKey)
+{
+    // The key is a secret and must not end up in the action-argument logs.
+    /// <inheritdoc />
+    public override string ToString() => nameof(CredentialsResponse);
+}
+
+/// <summary>The caller's account.</summary>
+/// <param name="UserId">The user's id.</param>
+/// <param name="Email">The account's address.</param>
+/// <param name="CreatedAt">When the account was created.</param>
+public sealed record AccountResponse(string UserId, string Email, DateTimeOffset CreatedAt);

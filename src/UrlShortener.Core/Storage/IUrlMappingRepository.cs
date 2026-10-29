@@ -38,4 +38,10 @@ public interface IUrlMappingRepository
         int pageSize,
         string? pageToken,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes one link. Does nothing if it does not exist.</summary>
+    Task DeleteAsync(string shortCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes a user's whole link list (the entries of <see cref="ListByUserAsync"/>), not the links themselves.</summary>
+    Task DeleteUserListAsync(string userId, CancellationToken cancellationToken = default);
 }

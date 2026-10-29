@@ -52,6 +52,13 @@ public sealed class RedisUrlCache(IConnectionMultiplexer redis, RedisKeys keys, 
         }
     }
 
+    public async Task RemoveAsync(string shortCode, CancellationToken cancellationToken = default)
+    {
+        // Not swallowed like the other operations: if the entry survives, a deleted link keeps redirecting.
+        using var span = UrlShortenerTelemetry.StartClientSpan("cache.remove", "redis");
+        await redis.GetDatabase().KeyDeleteAsync(keys.Url(shortCode)).WaitAsync(cancellationToken);
+    }
+
     // A value that cannot be parsed (e.g. written by another version) is treated as a miss, not an error.
     private static CachedUrl? Parse(string raw)
     {

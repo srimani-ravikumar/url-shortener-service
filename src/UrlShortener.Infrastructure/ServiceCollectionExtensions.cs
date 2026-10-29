@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IUrlMappingRepository, UrlMappingRepository>();
         services.AddSingleton<IUserRepository, UserRepository>();
         services.AddSingleton<IClickRepository, ClickRepository>();
+        services.AddSingleton<IEmailTokenStore, EmailTokenStore>();
         services.AddSingleton<IIdCounterCheckpointStore, IdCounterCheckpointStore>();
 
         // Redis
@@ -49,6 +50,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IIdCounter, RedisIdCounter>();
         services.AddSingleton<IUrlCache, RedisUrlCache>();
         services.AddSingleton<IClickBuffer, RedisClickBuffer>();
+        services.AddSingleton<ICooldownStore, RedisCooldownStore>();
 
         services.AddSingleton<IdCounterDurability>();
 

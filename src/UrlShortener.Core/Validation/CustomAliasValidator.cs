@@ -17,6 +17,7 @@ public sealed partial class CustomAliasValidator
     [
         "api", "admin", "login", "logout", "help", "contact", "shorten",
         "analytics", "users", "health", "swagger", "openapi", "metrics", "v1",
+        "app", "signup", "recover", "verify",
     ];
 
     private readonly HashSet<string> _reserved;

@@ -24,6 +24,9 @@ public sealed class FakeUrlMappingRepository : IUrlMappingRepository
 
     public ConcurrentDictionary<string, (UrlMapping Link, int TtlSeconds)> Stored { get; } = new();
 
+    // Kept apart from Stored, like Cassandra's urls_by_user table, so deleting a link does not shift a page in progress.
+    private readonly ConcurrentDictionary<string, UrlMapping> _userList = new();
+
     /// <summary>How many times <see cref="GetAsync"/> was called, to tell cache hits from database reads.</summary>
     public int GetCalls => _getCalls;
 
@@ -31,12 +34,40 @@ public sealed class FakeUrlMappingRepository : IUrlMappingRepository
     public Exception? FailWith { get; set; }
 
     /// <summary>Adds a link directly, bypassing the creation rules.</summary>
-    public void Add(UrlMapping link) => Stored[link.ShortCode] = (link, 100);
+    public void Add(UrlMapping link)
+    {
+        Stored[link.ShortCode] = (link, 100);
+        _userList[link.ShortCode] = link;
+    }
 
     public Task<bool> TryInsertAsync(UrlMapping mapping, int ttlSeconds, CancellationToken cancellationToken = default)
     {
         ThrowIfFailing();
-        return Task.FromResult(Stored.TryAdd(mapping.ShortCode, (mapping, ttlSeconds)));
+        var added = Stored.TryAdd(mapping.ShortCode, (mapping, ttlSeconds));
+        if (added)
+        {
+            _userList[mapping.ShortCode] = mapping;
+        }
+
+        return Task.FromResult(added);
+    }
+
+    public Task DeleteAsync(string shortCode, CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing();
+        Stored.TryRemove(shortCode, out _);
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteUserListAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing();
+        foreach (var entry in _userList.Where(entry => entry.Value.UserId == userId).ToList())
+        {
+            _userList.TryRemove(entry.Key, out _);
+        }
+
+        return Task.CompletedTask;
     }
 
     public Task<UrlMapping?> GetAsync(string shortCode, CancellationToken cancellationToken = default)
@@ -61,8 +92,7 @@ public sealed class FakeUrlMappingRepository : IUrlMappingRepository
             throw new InvalidPageTokenException();
         }
 
-        var all = Stored.Values
-            .Select(entry => entry.Link)
+        var all = _userList.Values
             .Where(link => link.UserId == userId)
             .OrderByDescending(link => link.CreatedAt)
             .ThenBy(link => link.ShortCode)
@@ -91,17 +121,159 @@ public sealed class FakeUrlMappingRepository : IUrlMappingRepository
 public sealed class FakeUserRepository : IUserRepository
 {
     private readonly ConcurrentDictionary<string, string> _userIdsByKeyHash = new();
+    private readonly ConcurrentDictionary<string, UserAccount> _accounts = new();
+    private readonly object _writeLock = new();
 
-    /// <summary>Creates an API key for the user and returns it (only its hash is stored, as in production).</summary>
-    public string AddUser(string userId)
+    /// <summary>When set, every call throws it, to simulate an outage.</summary>
+    public Exception? FailWith { get; set; }
+
+    /// <summary>Every account currently stored.</summary>
+    public IReadOnlyCollection<UserAccount> Accounts => _accounts.Values.ToList();
+
+    /// <summary>How many API keys currently authenticate someone.</summary>
+    public int KeyCount => _userIdsByKeyHash.Count;
+
+    /// <summary>
+    /// Creates an account with an API key and returns the key (only its hash is stored, as in production).
+    /// The email defaults to an address derived from the user id.
+    /// </summary>
+    public string AddUser(string userId, string? email = null)
     {
         var apiKey = "test-key-" + Guid.NewGuid().ToString("N");
-        _userIdsByKeyHash[ApiKeyHasher.Hash(apiKey)] = userId;
+        var hash = ApiKeyHasher.Hash(apiKey);
+        _userIdsByKeyHash[hash] = userId;
+        _accounts[userId] = new UserAccount(userId, email ?? $"{userId}@example.test", DateTimeOffset.UnixEpoch, hash);
         return apiKey;
     }
 
-    public Task<string?> GetUserIdByApiKeyHashAsync(string apiKeyHash, CancellationToken cancellationToken = default) =>
-        Task.FromResult(_userIdsByKeyHash.TryGetValue(apiKeyHash, out var userId) ? userId : null);
+    public Task<string?> GetUserIdByApiKeyHashAsync(string apiKeyHash, CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing();
+        return Task.FromResult(_userIdsByKeyHash.TryGetValue(apiKeyHash, out var userId) ? userId : null);
+    }
+
+    public Task<UserAccount?> GetByIdAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing();
+        return Task.FromResult(_accounts.TryGetValue(userId, out var account) ? account : null);
+    }
+
+    public Task<UserAccount?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing();
+        return Task.FromResult(_accounts.Values.FirstOrDefault(account => account.Email == email));
+    }
+
+    public Task<bool> TryCreateAsync(UserAccount user, CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing();
+
+        // One lock stands in for Cassandra's conditional insert on the email.
+        lock (_writeLock)
+        {
+            if (_accounts.Values.Any(account => account.Email == user.Email))
+            {
+                return Task.FromResult(false);
+            }
+
+            _accounts[user.UserId] = user;
+            _userIdsByKeyHash[user.ApiKeyHash!] = user.UserId;
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task ReplaceApiKeyAsync(string userId, string newApiKeyHash, string? presentedApiKeyHash, CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing();
+
+        lock (_writeLock)
+        {
+            var account = _accounts[userId];
+            _userIdsByKeyHash[newApiKeyHash] = userId;
+            _accounts[userId] = account with { ApiKeyHash = newApiKeyHash };
+
+            foreach (var oldHash in new[] { account.ApiKeyHash, presentedApiKeyHash })
+            {
+                if (oldHash is not null && oldHash != newApiKeyHash)
+                {
+                    _userIdsByKeyHash.TryRemove(oldHash, out _);
+                }
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteAsync(UserAccount user, string? presentedApiKeyHash, CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing();
+
+        lock (_writeLock)
+        {
+            foreach (var hash in new[] { user.ApiKeyHash, presentedApiKeyHash })
+            {
+                if (hash is not null)
+                {
+                    _userIdsByKeyHash.TryRemove(hash, out _);
+                }
+            }
+
+            _accounts.TryRemove(user.UserId, out _);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void ThrowIfFailing()
+    {
+        if (FailWith is not null)
+        {
+            throw FailWith;
+        }
+    }
+}
+
+/// <summary>In-memory email tokens; a test can read the "emailed" token it needs, and expire it.</summary>
+public sealed class FakeEmailTokenStore : IEmailTokenStore
+{
+    private readonly ConcurrentDictionary<string, EmailToken> _tokens = new();
+
+    /// <summary>How long the most recently saved token was told to live.</summary>
+    public TimeSpan LastLifetime { get; private set; }
+
+    /// <summary>How many tokens are waiting to be used.</summary>
+    public int Count => _tokens.Count;
+
+    public Task SaveAsync(string tokenHash, EmailToken token, TimeSpan lifetime, CancellationToken cancellationToken = default)
+    {
+        _tokens[tokenHash] = token;
+        LastLifetime = lifetime;
+        return Task.CompletedTask;
+    }
+
+    public Task<EmailToken?> TakeAsync(string tokenHash, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_tokens.TryRemove(tokenHash, out var token) ? token : null);
+
+    /// <summary>Simulates the token expiring.</summary>
+    public void Clear() => _tokens.Clear();
+}
+
+/// <summary>In-memory cooldowns; time only moves when the test says so.</summary>
+public sealed class FakeCooldownStore : ICooldownStore
+{
+    private readonly ConcurrentDictionary<string, TimeSpan> _running = new();
+
+    /// <summary>The duration of the cooldown most recently started.</summary>
+    public TimeSpan LastDuration { get; private set; }
+
+    public Task<bool> TryStartAsync(string key, TimeSpan duration, CancellationToken cancellationToken = default)
+    {
+        LastDuration = duration;
+        return Task.FromResult(_running.TryAdd(key, duration));
+    }
+
+    /// <summary>Simulates every cooldown running out.</summary>
+    public void ExpireAll() => _running.Clear();
 }
 
 /// <summary>In-memory click statistics.</summary>
@@ -139,6 +311,12 @@ public sealed class FakeClickRepository : IClickRepository
 
     public Task<ClickStats> GetAsync(string shortCode, CancellationToken cancellationToken = default) =>
         Task.FromResult(Stats.TryGetValue(shortCode, out var stats) ? stats : new ClickStats(0, null));
+
+    public Task DeleteAsync(string shortCode, CancellationToken cancellationToken = default)
+    {
+        Stats.TryRemove(shortCode, out _);
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>An in-memory ID counter with the same reseed rule as the Redis one.</summary>
@@ -215,6 +393,18 @@ public sealed class FakeUrlCache : IUrlCache
             Entries[shortCode] = (url, ttl);
         }
 
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveAsync(string shortCode, CancellationToken cancellationToken = default)
+    {
+        // Like the Redis cache, removal is not best-effort: an unreachable cache is an error.
+        if (Unavailable)
+        {
+            return Task.FromException(new TimeoutException("The cache is unavailable."));
+        }
+
+        Entries.TryRemove(shortCode, out _);
         return Task.CompletedTask;
     }
 }

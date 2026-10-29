@@ -15,6 +15,9 @@ internal static class ApiKeyDefaults
 
     // Keys are ~43 characters; anything far longer is garbage, so don't bother hashing or querying it.
     public const int MaxKeyLength = 256;
+
+    /// <summary>Claim holding the hash of the key that authenticated the request (never the key itself).</summary>
+    public const string KeyHashClaim = "api_key_hash";
 }
 
 /// <summary>
@@ -42,13 +45,16 @@ internal sealed class ApiKeyAuthenticationHandler(
             return AuthenticateResult.Fail("Malformed API key.");
         }
 
-        var userId = await users.GetUserIdByApiKeyHashAsync(ApiKeyHasher.Hash(apiKey), Context.RequestAborted);
+        var keyHash = ApiKeyHasher.Hash(apiKey);
+        var userId = await users.GetUserIdByApiKeyHashAsync(keyHash, Context.RequestAborted);
         if (userId is null)
         {
             return AuthenticateResult.Fail("Invalid API key.");
         }
 
-        var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId)], Scheme.Name);
+        var identity = new ClaimsIdentity(
+            [new Claim(ClaimTypes.NameIdentifier, userId), new Claim(ApiKeyDefaults.KeyHashClaim, keyHash)],
+            Scheme.Name);
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name));
     }
 
@@ -67,5 +73,10 @@ internal static class ClaimsPrincipalExtensions
     /// <summary>The id of the authenticated user. Only call from endpoints that require authentication.</summary>
     public static string GetUserId(this ClaimsPrincipal user) =>
         user.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? throw new InvalidOperationException("The request is not authenticated.");
+
+    /// <summary>The hash of the key that authenticated this request. Only call from endpoints that require authentication.</summary>
+    public static string GetApiKeyHash(this ClaimsPrincipal user) =>
+        user.FindFirstValue(ApiKeyDefaults.KeyHashClaim)
         ?? throw new InvalidOperationException("The request is not authenticated.");
 }

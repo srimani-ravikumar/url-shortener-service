@@ -44,6 +44,24 @@ CREATE TABLE IF NOT EXISTS users_by_api_key (
   user_id      text
 );
 
+-- Lets rotate and delete find the user's current users_by_api_key row. Added after the first release,
+-- hence ALTER ... IF NOT EXISTS (re-running this file must stay safe).
+ALTER TABLE users ADD IF NOT EXISTS api_key_hash text;
+
+-- One account per email (lower-cased and trimmed); written with IF NOT EXISTS to claim the address.
+CREATE TABLE IF NOT EXISTS users_by_email (
+  email   text PRIMARY KEY,
+  user_id text
+);
+
+-- Pending email verifications. Only the SHA-256 of the emailed token is stored; the row expires by itself.
+CREATE TABLE IF NOT EXISTS email_tokens (
+  token_hash text PRIMARY KEY,
+  purpose    text,
+  email      text,
+  created_at timestamp
+);
+
 CREATE TABLE IF NOT EXISTS id_counter_checkpoint (
   name  text PRIMARY KEY,
   value bigint

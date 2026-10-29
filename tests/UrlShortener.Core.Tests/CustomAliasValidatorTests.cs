@@ -49,6 +49,11 @@ public class CustomAliasValidatorTests
     [TestCase("LOGIN")]
     [TestCase("shorten")]
     [TestCase("health")]
+    [TestCase("app")]
+    [TestCase("App")]
+    [TestCase("signup")]
+    [TestCase("recover")]
+    [TestCase("verify")]
     public void Validate_RejectsReservedWords_CaseInsensitively(string alias)
     {
         var result = Validator.Validate(alias);
