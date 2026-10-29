@@ -24,6 +24,10 @@ Step-by-step, phase-wise procedure to implement the URL Shortener as per [requir
 | CDN | Out of scope; services emit correct `Cache-Control` headers |
 | Extras | Health checks, structured logging, rate limiting, OpenTelemetry + Grafana stack, GitHub Actions CI |
 | Dev tooling | PowerShell 7+ (`pwsh`) scripts to start/stop the stack, seed users, create links, generate traffic and run scenario checks |
+| Accounts (Phases 12-16) | Self-service sign-up with email verification replaces the "no sign-up in v1" decision; one account per email, one active API key per user |
+| Email delivery | SMTP via MailKit (`Smtp:*` settings, password from the environment); MailPit as the local catch-all in compose |
+| Account deletion | Deletes the account **and all of its links** (redirects then return `404`) |
+| Web UI | Angular app with plain SCSS (no UI library) in `web/`, served by its own nginx container under `/app/` on the same origin (no CORS); API key kept in `sessionStorage` |
 | Code conventions | Readability first: XML doc comments on public types/members, short comments explaining *why* (not *what*) for non-obvious logic, small focused classes; the same applies to tests and scripts |
 
 ## Target Solution Layout
@@ -463,11 +467,209 @@ Totals for the final run: 58 scenario checks passed (all 15 scenarios, including
 - **CI:** the GitHub Actions workflow has not run yet (Phase 10).
 - **Smaller items:** key lookups are not cached (one Cassandra read per authenticated request); no `HEAD` support on redirects; the OpenAPI document has no security scheme for `X-Api-Key`.
 
+## Phase 12 — Accounts Backend (Shortener API)
+
+**Goal:** Users create an account, recover or rotate their key, and delete the account through the API. **Status: done** (details after the exit criteria).
+
+**Data model (added to `deploy/cassandra/schema.cql`):**
+
+| Table / change | Key | Purpose |
+|---|---|---|
+| `users_by_email` | `email` (lower-cased, trimmed) | Enforces one account per email; written with `IF NOT EXISTS`; holds `user_id` |
+| `email_tokens` | `token_hash` | Pending verification: `purpose` (`signup` or `recover`), `email`, `created_at`; row TTL 24 h so it expires on its own |
+| `users.api_key_hash` (new column) | - | Lets rotate and delete find and remove the user's current `users_by_api_key` row |
+
+Tokens are 32 random bytes (Base64Url); only the SHA-256 is stored. A token works once (deleted on use).
+
+**Endpoints:**
+
+| Endpoint | Auth | Behaviour |
+|---|---|---|
+| `POST /api/v1/signup` `{email}` | none | Validates the email (max 254 chars) and always answers `202`, so addresses cannot be probed. Existing email: sends an "you already have an account, use recover" mail instead of a token |
+| `POST /api/v1/recover` `{email}` | none | Always `202`; sends a recovery link only if the account exists |
+| `POST /api/v1/verify` `{token}` | none | `signup`: creates the user (if the email is still free) and a key. `recover`: replaces the user's key. Returns `{user_id, api_key}` once. Unknown, expired or used token: `400` |
+| `GET /api/v1/users/me` | key | Returns `user_id`, `email`, `created_at`; lets the UI validate a pasted key |
+| `POST /api/v1/users/me/api-key/rotate` | key | Issues a new key and revokes the old one; returns the new key once |
+| `DELETE /api/v1/users/me` | key | Deletes the account and all its links; `204` |
+
+**Account deletion order** (retryable because the key stays valid until the end): page through `urls_by_user` and delete each link's `url_mappings`, `url_clicks`, `url_last_access` rows and its Redis `url:{code}` / `clicks:{code}` keys → delete the `urls_by_user` partition → delete the `users_by_api_key`, `users_by_email` and `users` rows. It runs synchronously in v1; very large accounts are a known risk (move to a background job later).
+
+**Email:** `IEmailSender` with an SMTP implementation (MailKit), configured by `Smtp:Host/Port/UseStartTls/Username/Password/From` (password only from the environment). Links look like `{Web:PublicBaseUrl}/app/verify#token=...`; the token is in the URL **fragment** so it never reaches server logs or `Referer` headers. Sending failures give `503` for the caller to retry; they are never reported as "email unknown".
+
+**Abuse limits:** token-bucket limit per client address on `signup`, `recover` and `verify` (default 5 per hour for the first two), plus a 60-second cooldown per email (Redis key) between mails. `custom_alias` reserves `app`, `signup`, `recover`, `verify`.
+
+**Exit criteria:** NUnit tests (fake email sender and repositories) cover the happy paths, expired/reused tokens, duplicate email, enumeration-safe responses, throttling, rotate, and delete (links gone, redirect `404`, cache cleared); integration tests cover the new Cassandra tables.
+
+**Status: done.** Code: `src/UrlShortener.Core` (`Storage/IUserRepository`, `IEmailTokenStore`, `ICooldownStore`; `Validation/EmailAddressValidator`; `Security/SecretGenerator`), `src/UrlShortener.Infrastructure` (`Cassandra/UserRepository`, `EmailTokenStore`, new statements; `Redis/RedisCooldownStore`; delete operations on the link, click and cache stores), `src/UrlShortener.Shortener.Api` (`Controllers/RegistrationController`, `MeController`; `Services/AccountService`, `AccountMessages`; `Email/SmtpEmailSender`; `Configuration/AccountOptions`). 366 automated tests pass (Core 134, Shortener.Api 88, Infrastructure 80 against the live stack, Redirector 34, Worker 30); the build has 0 warnings with `-warnaserror`. Verified live against real Cassandra, Redis and a MailPit container: sign-up mail arrives with the link, verify returns the key once (`Cache-Control: no-store`), a second use of the token gives `400`, `/users/me` works, two links were created, rotate revokes the old key (`401`), delete returns `204` and leaves no rows in `users`, `users_by_email` or `urls_by_user`. Re-running `schema.cql` twice on the running Cassandra succeeds (the `ALTER TABLE ... ADD IF NOT EXISTS` is idempotent).
+
+**Deviations from the plan above:**
+
+| Plan | What was built | Why |
+|---|---|---|
+| Settings named `Web:PublicBaseUrl` | `Account:WebBaseUrl` (section `Account`, with `TokenLifetime`, `MailCooldown`, `MailRequestsPerHour`, `VerifyRequestsPerHour`) | Keeps all account settings in one section. |
+| Per-address limit "5 per hour" for `signup`, `recover` and `verify` | `signup` and `recover` share one bucket of 5 per hour; `verify` has its own, looser bucket of 30 per hour | A token cannot be guessed, so the verify limit only has to stop floods; a stricter one could lock out a user who retries. |
+| (not in the plan) | The shared 429 text is now generic ("You are sending requests too quickly") | The old text said "creating links", which is wrong for account endpoints. |
+| `ReplaceApiKey`/`Delete` use the recorded key hash | They also revoke the hash of the key used for the request (a claim added by the authentication handler) | Accounts created before `users.api_key_hash` existed have no recorded hash, so the presented key is the only way to find the row to remove. |
+| Dev seed script unchanged | `New-DevUser.ps1` and the scenarios now also write `users.api_key_hash` and `users_by_email`, and clean them up | Dev users then look like real sign-ups and can use recover, rotate and delete. Dev users seeded earlier lack those rows; seed new ones. |
+
+Implementation notes for later phases:
+- **Run it:** the API needs `Smtp:Host/Port/From` (defaults in `appsettings.json` point at `localhost:1025` with no TLS, the MailPit port) and `Account:WebBaseUrl` (default `http://localhost:8080`). In production set `Smtp__Host`, `Smtp__Port`, `Smtp__UseStartTls=true`, `Smtp__Username`, `Smtp__Password`, `Smtp__From` and `Account__WebBaseUrl` as environment variables. Phase 15 adds them to compose.
+- **Manual testing:** requests are in `UrlShortener.Shortener.Api.http`. For a mail catcher, `docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit:v1.32.0` and open `http://localhost:8025`.
+- **Answers that must not differ:** `signup` and `recover` answer `202` for known, unknown and cooling-down addresses alike; only the validation error (`400`) and a mail-server failure (`503`) differ. A failed send still starts the 60-second cooldown for that address.
+- **Token lifetime:** a token is removed when it is taken, before the account work happens. If storage fails right after, the user must ask for a new mail.
+- **Deleting an account** removes each link's database row first and its cache entry right after, then its click statistics; failures (for example Redis down) give `503` and the key still works, so the caller retries. Orphans left by earlier failures (a link missing from `urls_by_user`) and a link being created during the deletion are not cleaned up. A redirect that read the row just before it was deleted can still re-cache it for up to 24 hours; this narrow race is accepted for v1.
+- **Not done:** an automated test for `SmtpEmailSender` (verified by hand against MailPit instead); alert on failed mails; making deletion a background job for accounts with a very large number of links.
+
+## Phase 13 — Angular App: Scaffold and Core
+
+**Goal:** A buildable app in `web/` with the shared plumbing. **Status: done** (details after the exit criteria).
+
+1. Angular CLI project at the current stable version (pinned in `package.json`; Node version pinned in the Dockerfile and CI), standalone components, signals, strict TypeScript, **plain SCSS** (a small design-token file for colours, spacing and typography; no UI library).
+2. `<base href="/app/">`; dev server proxies `/api` to `http://localhost:8080` so the dev setup is also same-origin.
+3. Core services: `ApiClient` (typed wrappers for each endpoint), `AuthService` (key in `sessionStorage`, `signedIn` signal, sign-out), HTTP interceptor adding `X-Api-Key` and signing out on `401`, error mapper for RFC 7807 problem details (field errors keyed in snake_case), route guard for signed-in pages.
+4. Layout: header (brand, account menu), toast area for errors, loading states.
+
+**Exit criteria:** `npm ci`, lint, unit tests and `ng build` pass; the app shell loads under `/app/`.
+
+**Status: done.** Angular 22.2 (CLI 22.2.5), standalone components and signals, Vitest through `ng test`, ESLint (`angular-eslint`), Node 24 (`engines` in `package.json`; Dockerfile and CI pins come in Phases 15-16). `npm run lint`, `npm run test:ci` (58 tests in 10 files) and `npm run build` (245 kB initial, 68 kB transferred) pass. Verified with the dev server: `/app/`, a deep link such as `/app/some/deep/link` and the production `index.html` all carry `<base href="/app/">`.
+
+Layout of `web/src`:
+- `app/core/`: `api-client.ts` (one typed method per endpoint, relative `/api/v1/...` URLs), `api.models.ts` (snake_case DTOs), `api-error.ts` (`ApiError` and `toApiError` for RFC 7807 problems), `auth.service.ts` (key in `sessionStorage`; `signIn`, `acceptCredentials`, `ensureAccount`, `signOut`), `interceptors.ts` (API key header, 401 handling, error conversion, loading counter), `auth.guard.ts`, `toast.service.ts`, `loading.service.ts`, `http-context.ts`.
+- `app/layout/`: `header` (brand, email and sign-out for a signed-in user) and `toasts`; `app.html` adds the progress bar and `router-outlet`.
+- `app/pages/home.ts`: a placeholder start page, replaced by the sign-in page in Phase 14. `app.routes.ts` had only `''` and a redirect for unknown paths.
+- `styles/_tokens.scss` (colours, spacing, type, shape as CSS custom properties), `_base.scss` (element defaults, `.container`, `.btn`), `styles.scss` pulls both in. System fonts only; no third-party requests.
+- `testing/fake-storage.ts`: an in-memory `Storage` for tests.
+
+**Deviations from the plan above:**
+
+| Plan | What was built | Why |
+|---|---|---|
+| `<base href="/app/">` | Set as `baseHref` in `angular.json` (source `index.html` keeps `/`) | The builder writes the tag for every build and `ng serve` serves under `/app/` too. |
+| Header with an "account menu" | Brand, email and a sign-out button only | The account and links pages do not exist yet; Phase 14 adds their links. |
+| Route guard "for signed-in pages" | `authGuard` is written and tested but not yet used by a route | No page needs it until Phase 14. |
+
+Implementation notes for later phases:
+- **Run it:** `cd web; npm ci; npm start` serves `http://localhost:4200/app/` and forwards `/api` to `http://localhost:8080` (`proxy.conf.json`), so the stack must be running (`Start-Dev.ps1`) for API calls. Other scripts: `npm run lint`, `npm run test:ci`, `npm run build` (output in `web/dist/web/browser`).
+- **Interceptor order matters** (`app.config.ts`): loading, auth, error. The error interceptor is innermost, so the auth interceptor sees `ApiError`s and signs the user out on a 401, except for requests marked with `SILENT_AUTH_ERRORS` (the check of a typed key, `ApiClient.getMe(true)`).
+- **Showing errors:** pages should catch `ApiError`, show `error.fieldError('long_url')` next to a field and `error.userMessage` in a toast; `error.retryAfterSeconds` is set for 429 and 503.
+- **Keys:** `AuthService.acceptCredentials` stores a key returned by verify or rotate. After deleting the account or on any sign-out the key is removed from `sessionStorage`.
+- **Not done:** Playwright end-to-end tests (out of scope), and the Dockerfile that serves the build (Phase 15).
+
+## Phase 14 — Angular App: Pages
+
+**Goal:** The user journeys, all through the public API. **Status: done** (details after the exit criteria).
+
+| Route | Page |
+|---|---|
+| `/app` | Landing: "Sign in with API key" and "Get a key" |
+| `/app/signup` | Email form, then a "check your inbox" message (same text whether or not the email exists) |
+| `/app/recover` | Lost-key form (same "check your inbox" message) |
+| `/app/verify` | Reads the token from the URL fragment, calls `verify`, shows the key **once** with a copy button and a "store it now" warning, then goes to the links page |
+| `/app/links` | Shorten form (URL, optional alias, optional expiry) with field errors; paginated "My links" list (newest first, page token) with copy buttons |
+| `/app/links/:code` | Total clicks, created at, last accessed |
+| `/app/account` | Shows the email; rotate key (confirm, then show the new key once); delete account (type the email to confirm) |
+
+Security rules in the UI: never log or put the key in a URL; clear it on sign-out, on `401` and after rotate/delete; no third-party scripts or fonts.
+
+**Exit criteria:** component and service unit tests for every page; a manual walk-through of sign-up (via MailPit), shorten, list, analytics, rotate, recover and delete.
+
+**Status: done.** `npm run lint`, `npm run test:ci` (113 tests in 19 files) and `npm run build` (285 kB initial, 78 kB transferred, pages lazy-loaded, no budget warnings) pass.
+
+Browser walk-through (Chrome-based integrated browser; dev server on 4300 with `/api` forwarded to a locally run Shortener API, real Cassandra and Redis, MailPit as the mail server): sign-up form → "check your inbox" → the mailed link opens `/app/verify`, the token disappears from the address bar, the key is shown once with a copy button and the header shows the user → "continue" → shortening a URL shows the new link at once and lists it → the statistics page loads → account page: typing the email enables "Delete my account" → deleting signs out, returns to the sign-in page and shows a confirmation; the API log shows the user and its 1 link deleted. **Not walked through by hand:** key rotation and recovery (covered by unit tests of the pages and by the backend smoke test in Phase 12), and a narrow-screen layout check.
+
+Pages (all in `web/src/app/pages/`, loaded on demand): `sign-in` (`/`, guarded by `guestGuard`), `request-mail` (`/signup` and `/recover`, one component driven by route data `mode`), `verify`, `links` (with `shorten-form`), `link-detail` (`/links/:code`), `account`. Shared: `shared/copy-button`, `shared/key-reveal`. Core additions: `guestGuard`, `describeError`, `short-links.ts`.
+
+Deviations from the plan above:
+
+| Plan | What was built | Why |
+|---|---|---|
+| `/app` shows "Sign in with API key" and "Get a key" | The start page is the sign-in form with links to get or recover a key; signed-in users are sent on to `/links` | One clear action per page. |
+| `/app/verify` goes to the links page after showing the key | It waits for the user to press "I have saved my key, continue" | Leaving at once would hide the only copy of the key. |
+| Account page "shows the email" | Shows email and user id | The user id is what the API calls the account. |
+
+Implementation notes for later phases:
+- **Short URLs in the list** are built from the page's origin (`shortUrlFor`), which is right behind nginx (same origin serves the redirector). Under `ng serve` the origin is `localhost:4300`, so those links do not redirect there. The link shown right after creating comes from the API (`Shortener:ShortUrlBase`).
+- **Verification links** use `Account:WebBaseUrl`; for a dev server on another port set `Account__WebBaseUrl=http://localhost:4300`.
+- **Same-origin check:** the sign-up mail link must open the same origin that serves `/api`, since the key is kept per origin in `sessionStorage`.
+- **Not done:** end-to-end browser tests (out of scope), per-page `<meta>` descriptions, narrow-screen and keyboard-only passes beyond the labels, focus management and `aria` attributes already in the templates.
+
+## Phase 15 — Containerization and Wiring
+
+**Goal:** The web app and mail catcher run in the compose stack. **Status: done** (details after the exit criteria).
+
+1. `web/Dockerfile`: Node build stage → `nginx:1.27-alpine` serving the static files with a fallback to `index.html`, non-root, with security headers (`Content-Security-Policy` allowing only same-origin, `X-Content-Type-Options`, `Referrer-Policy: no-referrer`).
+2. Compose: `web` service (no host port), `mailpit` (pinned image; SMTP 1025, UI 8025) for dev, SMTP settings and `Web__PublicBaseUrl` passed to the Shortener API.
+3. `deploy/nginx/default.conf`: `location /app/` → `web`; `/app` redirects to `/app/`; `/api/` and `/{code}` unchanged.
+4. `Start-Dev.ps1`: waits for `web` and MailPit, prints their URLs.
+5. `docs/02-design/architecture.md` gets a **Web UI (Angular)** node between Client and Nginx and the new endpoints; `design.md` and `db-schema.md` get the account flows and tables.
+
+**Exit criteria:** `Start-Dev.ps1 -Build` then browsing `http://localhost:8080/app/` completes the whole sign-up-to-redirect journey, with the verification mail visible in MailPit.
+
+**Status: done.** Verified with `Start-Dev.ps1 -Build` (all images built, including `web`, which runs `npm ci` and the production build inside Docker; every container healthy) and the integrated browser at `http://localhost:8080/app/`: sign-up form → mail in MailPit (link built from `Account__WebBaseUrl`) → verify page shows the key once → shorten a URL → the short link answers `302` through nginx (3 clicks) → the statistics page shows 3 clicks after the worker's flush → replace the key (new key shown) → delete the account → the deleted link now answers `404`. `Invoke-Scenario.ps1 -All` also passes (45 checks; `LoadBalancing` skipped with one redirector replica). Responses carry the security headers; `index.html` is `no-cache`, hashed files are cached for a year, and a missing file is a real `404`.
+
+**Deviations from the plan above:**
+
+| Plan | What was built | Why |
+|---|---|---|
+| Final stage `nginx:1.27-alpine`, non-root | `nginxinc/nginx-unprivileged:1.27-alpine` on port 8080 | The plain nginx image needs root to start; the unprivileged variant runs as a normal user. |
+| Settings named `Web__PublicBaseUrl` | `Account__WebBaseUrl`, plus `SMTP_*` and `MAILPIT_UI_PORT` in `deploy/.env` (empty means the MailPit defaults) | Matches the options added in Phase 12. |
+| `angular.json` unchanged | Production build sets `inlineCritical: false` | Critical-CSS inlining adds an inline `onload` handler, which a strict `script-src 'self'` policy blocks. |
+| (not in the plan) | `absolute_redirect off` in both nginx configs | nginx only knows its container port, so `/app` would redirect to `http://localhost/app/` without the published port. |
+| (not in the plan) | `web/` added to the root `.dockerignore` | The .NET images use the repository root as build context; `node_modules` must not be sent. |
+
+Implementation notes for later phases:
+- **Run it:** `./scripts/Start-Dev.ps1 -Build`, then open `http://localhost:8080/app/`; mails arrive at `http://localhost:8025`. The web container and MailPit have no other published ports.
+- **Real mail:** set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_STARTTLS=true`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `SMTP_FROM` in `deploy/.env`. The `shortener-api` service still lists `mailpit` in `depends_on`; remove both for a deployment without the catcher.
+- **Public address:** `Account__WebBaseUrl` and `Shortener__ShortUrlBase` both use `http://localhost:${PUBLIC_PORT}`; behind a real domain set them to the public HTTPS address.
+- **Content-Security-Policy:** `web/security-headers.conf` allows only the app's own origin; `style-src` has `'unsafe-inline'` because Angular writes component styles into `<style>` tags at run time. The policy was not exercised with a browser-console check; the app works under it (styles and API calls load).
+- **nginx config changes need a restart** (`docker compose -f deploy/docker-compose.yml restart nginx`): the file is mounted, and `up -d` does not notice a changed mount.
+- **Not done:** the exact browser CSP-violation check, TLS, and running `web` and MailPit in CI (Phase 16).
+
+## Phase 16 — CI, Scenarios and Verification
+
+**Goal:** The new pieces are tested automatically. **Status: done locally; the workflow has not run on GitHub yet** (details after the exit criteria).
+
+1. CI: a `web` job (`npm ci`, lint, unit tests, production build); the smoke job also starts `web` and MailPit.
+2. New scenarios in `Invoke-Scenario.ps1` (verification token read from the MailPit API): `Signup` (mail → verify → key works), `SignupEnumeration` (known and unknown emails give the same response), `TokenReuse`, `Rotate` (old key `401`, new key works), `Recover`, `DeleteAccount` (links redirect `404`, key `401`, analytics gone).
+3. Update requirements.md with the account and web UI requirements, and extend Phase 11-style verification with the results.
+
+**Exit criteria:** The full pipeline is green, including the new scenarios.
+
+**Status:** every step of the pipeline was run locally with the same commands; the workflow itself has not run on GitHub (no remote), so the first GitHub run is the real test.
+
+| Pipeline step | Local result |
+|---|---|
+| `build-and-test`: `dotnet build -c Release -warnaserror` and all NUnit projects against the live stack | 0 warnings; 366 tests pass (Core 134, Shortener.Api 88, Infrastructure 80, Redirector.Api 34, AnalyticsWorker 30) |
+| `web`: `npm run lint`, `npm run test:ci`, `npm run build` | lint clean; 113 tests in 19 files pass; build 285 kB initial, no budget warnings |
+| `smoke`: `Start-Dev.ps1 -Build` then `Invoke-Scenario.ps1 -All` | all images build and every container becomes healthy; 86 checks pass, 1 skipped (`LoadBalancing` with one redirector replica; CI runs three) |
+| `actionlint` on `ci.yml` | no findings |
+
+What was added:
+- **CI:** a `web` job (Node 24, `npm ci`, lint, unit tests, production build, npm cache). The `smoke` job needed no new steps: `Start-Dev.ps1 -Build` already builds and waits for `web` and MailPit.
+- **Scenarios** (`scripts/Invoke-Scenario.ps1`, 41 checks, all in `-All`): `Signup` (mail arrives, link opens the web app with the token in the fragment, verify returns the key with `no-store`, the key works, a second use of the token is `400`, the new account can create links), `SignupEnumeration` (known and unknown addresses get the same `202` and body; the known one is told by mail, with no token; an invalid address is `400`), `Rotate` (no key `401`; the old key `401`, the new key works for the same account), `Recover` (mail, verify, same account, the lost key `401`; an unknown address gets `202` and no mail), `DeleteAccount` (links redirect, then the account is deleted: `204`, key `401`, both links `404`, the Redis cache entry gone, and the address can sign up again as a different account).
+- **Helpers** in `scripts/DevCommon.psm1`: `Wait-ForMail` reads MailPit's search API (address from `DEV_MAIL_URL`, or `MAILPIT_UI_PORT` in `deploy/.env`, default 8025) and returns the subject, text and the token from the link.
+- **Requirements:** `requirements.md` has the account, web UI and security requirements.
+
+Deviations from the plan above:
+
+| Plan | What was built | Why |
+|---|---|---|
+| A separate `TokenReuse` scenario | Folded into `Signup` | It needs the same mail and token; a separate scenario would repeat the setup. |
+| (not in the plan) | The local compose stack sets `Account__MailRequestsPerHour` to 100 and `Account__VerifyRequestsPerHour` to 300 (override with `ACCOUNT_*` in `deploy/.env`) | The service defaults (5 and 30 per hour per address) would stop repeated scenario runs; production keeps the defaults. |
+
+Gaps and risks:
+- **No live check of the mail rate limit (`429`) or the one-mail-per-minute cooldown:** both are covered by API tests with fakes and the cooldown by an integration test, but the local stack's raised limits make a scenario impractical.
+- **Not run on GitHub:** the `web` job, the `ubuntu` + PowerShell 7 smoke run with three redirector replicas, and the new scenarios under PowerShell 7. The scripts avoid 7-only features and parse cleanly under 5.1; the `LoadBalancing` scenario is the one that is skipped locally.
+- **Branch protection (manual):** add the `web` check to the required checks next to `build-and-test` and `smoke`.
+- **MailPit in CI** is the same pinned image as locally (`axllent/mailpit:v1.32.0`); a registry outage would fail the smoke job.
+
 ## Out of Scope for v1
 
 - CDN / edge caching (headers only)
 - 301 / per-link redirect type
-- User sign-up and API key management endpoints
+- Multiple API keys per user, passwords, OAuth / social login
+- Disposable-email blocking, CAPTCHA
+- Browser end-to-end tests (Playwright) and server-side rendering for the web UI
 - Distributed (cluster-wide) rate limiting
 - Multi-node Cassandra / Redis Sentinel or Cluster
 - Updating or deleting links
