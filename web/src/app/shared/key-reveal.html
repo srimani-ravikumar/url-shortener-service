@@ -1,0 +1,9 @@
+<div class="reveal" role="group" aria-labelledby="key-title">
+  <h2 id="key-title">Your API key</h2>
+  <p class="warning">
+    This is the only time the key is shown. Copy it and keep it somewhere safe, such as a password manager. If you lose
+    it you can ask for a new one by email.
+  </p>
+  <p><code class="key" data-testid="api-key">{{ apiKey() }}</code></p>
+  <app-copy-button [text]="apiKey()" label="Copy key" />
+</div>

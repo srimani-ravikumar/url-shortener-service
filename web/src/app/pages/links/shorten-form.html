@@ -1,0 +1,64 @@
+<section class="card" aria-labelledby="shorten-title">
+  <h2 id="shorten-title">Shorten a link</h2>
+
+  <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+    <div class="field">
+      <label for="long-url">Long URL</label>
+      <input
+        id="long-url"
+        type="url"
+        formControlName="longUrl"
+        placeholder="https://example.com/a/very/long/address"
+        autocomplete="off"
+        [attr.aria-invalid]="errors()['long_url'] ? 'true' : null"
+        [attr.aria-describedby]="errors()['long_url'] ? 'long-url-error' : null"
+      />
+      @if (errors()['long_url']) {
+        <p class="field-error" id="long-url-error" role="alert">{{ errors()['long_url'] }}</p>
+      }
+    </div>
+
+    <div class="field">
+      <label for="custom-alias">Custom alias (optional)</label>
+      <input
+        id="custom-alias"
+        type="text"
+        formControlName="customAlias"
+        autocomplete="off"
+        spellcheck="false"
+        aria-describedby="custom-alias-hint custom-alias-error"
+        [attr.aria-invalid]="errors()['custom_alias'] ? 'true' : null"
+      />
+      <p class="hint" id="custom-alias-hint">3-50 letters, digits, '-' or '_'. Leave empty for a generated code.</p>
+      @if (errors()['custom_alias']) {
+        <p class="field-error" id="custom-alias-error" role="alert">{{ errors()['custom_alias'] }}</p>
+      }
+    </div>
+
+    <div class="field">
+      <label for="expires-at">Expires (optional)</label>
+      <input
+        id="expires-at"
+        type="datetime-local"
+        formControlName="expiresAt"
+        aria-describedby="expires-at-hint expires-at-error"
+        [attr.aria-invalid]="errors()['expires_at'] ? 'true' : null"
+      />
+      <p class="hint" id="expires-at-hint">Your local time. Leave empty for one year.</p>
+      @if (errors()['expires_at']) {
+        <p class="field-error" id="expires-at-error" role="alert">{{ errors()['expires_at'] }}</p>
+      }
+    </div>
+
+    <button type="submit" class="btn btn-primary" [disabled]="busy()">Shorten</button>
+  </form>
+
+  @if (result(); as link) {
+    <div class="result" role="status">
+      <p>
+        Your short link: <a [href]="link.short_url"><code>{{ link.short_url }}</code></a>
+      </p>
+      <app-copy-button [text]="link.short_url" label="Copy link" />
+    </div>
+  }
+</section>

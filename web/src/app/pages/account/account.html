@@ -1,0 +1,45 @@
+<h1>Account</h1>
+
+@if (account(); as account) {
+  <section class="card" aria-labelledby="details-title">
+    <h2 id="details-title">Details</h2>
+    <dl>
+      <dt>Email</dt>
+      <dd>{{ account.email }}</dd>
+      <dt>User id</dt>
+      <dd><code>{{ account.user_id }}</code></dd>
+    </dl>
+  </section>
+}
+
+<section class="card" aria-labelledby="rotate-title">
+  <h2 id="rotate-title">Replace your API key</h2>
+
+  @if (newCredentials(); as credentials) {
+    <app-key-reveal [apiKey]="credentials.api_key" />
+  } @else if (confirmingRotate()) {
+    <p>Your current key stops working immediately. Anything that uses it must be given the new key.</p>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" [disabled]="busy()" (click)="rotate()">Replace key</button>
+      <button type="button" class="btn" [disabled]="busy()" (click)="confirmingRotate.set(false)">Cancel</button>
+    </div>
+  } @else {
+    <p class="muted">Get a new key if the old one may have leaked. The old one is revoked.</p>
+    <button type="button" class="btn" (click)="confirmingRotate.set(true)">Replace key</button>
+  }
+</section>
+
+<section class="card" aria-labelledby="delete-title">
+  <h2 id="delete-title">Delete your account</h2>
+  <p>
+    This deletes your account <strong>and every link you created</strong>. Those short links stop working and cannot
+    be restored.
+  </p>
+  <div class="field">
+    <label for="confirm-email">Type your email address to confirm</label>
+    <input id="confirm-email" type="email" [formControl]="confirmation" autocomplete="off" />
+  </div>
+  <button type="button" class="btn btn-danger" [disabled]="!canDelete() || busy()" (click)="deleteAccount()">
+    Delete my account
+  </button>
+</section>

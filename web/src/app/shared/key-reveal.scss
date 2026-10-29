@@ -1,0 +1,19 @@
+.reveal {
+  padding: var(--space-3);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius);
+  background: var(--color-success-bg);
+}
+
+.warning {
+  font-weight: 600;
+}
+
+.key {
+  display: block;
+  padding: var(--space-2);
+  border: 1px dashed var(--color-muted);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  user-select: all;
+}

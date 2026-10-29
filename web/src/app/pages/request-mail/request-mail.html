@@ -1,0 +1,41 @@
+<section class="card narrow">
+  @if (sentTo(); as address) {
+    <h1>Check your inbox</h1>
+    <p>
+      If <strong>{{ address }}</strong> can be used for this, we have sent a link to it. It works once and expires in 24
+      hours. Not there after a few minutes? Look in your spam folder.
+    </p>
+    <p><a routerLink="/">Back to sign in</a></p>
+  } @else {
+    @if (mode === 'signup') {
+      <h1>Get an API key</h1>
+      <p class="muted">Enter your email address. We send a link that creates your account and shows your key.</p>
+    } @else {
+      <h1>Get a new API key</h1>
+      <p class="muted">
+        Enter the email address of your account. We send a link that replaces your key; the old key stops working once
+        you use it.
+      </p>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <div class="field">
+        <label for="email">Email address</label>
+        <input
+          id="email"
+          type="email"
+          formControlName="email"
+          autocomplete="email"
+          [attr.aria-invalid]="emailError() ? 'true' : null"
+          [attr.aria-describedby]="emailError() ? 'email-error' : null"
+        />
+        @if (emailError()) {
+          <p class="field-error" id="email-error" role="alert">{{ emailError() }}</p>
+        }
+      </div>
+      <button type="submit" class="btn btn-primary" [disabled]="busy()">Send link</button>
+    </form>
+
+    <p class="muted"><a routerLink="/">Back to sign in</a></p>
+  }
+</section>

@@ -1,0 +1,36 @@
+<p><a routerLink="/links">&larr; My links</a></p>
+
+<section class="card">
+  <h1>Link statistics</h1>
+  <p>
+    <a [href]="shortUrl"><code>{{ shortUrl }}</code></a>
+  </p>
+  <app-copy-button [text]="shortUrl" label="Copy link" />
+
+  @switch (state()) {
+    @case ('loading') {
+      <p class="muted" role="status">Loading...</p>
+    }
+    @case ('loaded') {
+      @if (stats(); as stats) {
+        <dl>
+          <dt>Total clicks</dt>
+          <dd data-testid="total-clicks">{{ stats.total_clicks }}</dd>
+          <dt>Created</dt>
+          <dd>{{ stats.created_at | date: 'medium' }}</dd>
+          <dt>Last followed</dt>
+          <dd>{{ stats.last_accessed ? (stats.last_accessed | date: 'medium') : 'Never' }}</dd>
+        </dl>
+        <p class="muted">Clicks can take a few seconds to show up.</p>
+        <button type="button" class="btn" (click)="load()">Refresh</button>
+      }
+    }
+    @case ('missing') {
+      <p role="alert">We could not find a link with this code in your account.</p>
+    }
+    @default {
+      <p class="field-error" role="alert">{{ failure() }}</p>
+      <button type="button" class="btn" (click)="load()">Try again</button>
+    }
+  }
+</section>

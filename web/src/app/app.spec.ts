@@ -20,7 +20,7 @@ describe('App', () => {
     });
   });
 
-  it('shows the header, the start page and the toast area', async () => {
+  it('shows the header, the sign-in page and the toast area', async () => {
     const fixture = TestBed.createComponent(App);
     // The first navigation normally starts when the real app boots.
     await TestBed.inject(Router).navigateByUrl('/');
@@ -29,7 +29,7 @@ describe('App', () => {
 
     expect(element.querySelector('app-header')).not.toBeNull();
     expect(element.querySelector('app-toasts')).not.toBeNull();
-    expect(element.querySelector('main h1')?.textContent).toContain('Short links you control');
+    expect(element.querySelector('main h1')?.textContent).toContain('Sign in');
   });
 
   it('shows the progress bar only while the API is being called', async () => {

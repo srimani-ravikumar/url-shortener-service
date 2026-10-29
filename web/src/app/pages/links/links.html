@@ -1,0 +1,44 @@
+<h1>My links</h1>
+
+<app-shorten-form (created)="addCreated($event)" />
+
+<section class="card" aria-labelledby="list-title">
+  <h2 id="list-title">Your links</h2>
+
+  @if (loadError()) {
+    <p class="field-error" role="alert">{{ loadError() }}</p>
+    <button type="button" class="btn" (click)="loadMore()">Try again</button>
+  } @else if (loaded() && items().length === 0) {
+    <p class="muted">You have no links yet. Shorten one above.</p>
+  }
+
+  @if (items().length > 0) {
+    <ul class="links">
+      @for (link of items(); track link.short_code) {
+        <li class="link">
+          <div class="main">
+            <a [href]="shortUrlFor(link.short_code)"><code>{{ shortUrlFor(link.short_code) }}</code></a>
+            @if (isExpired(link.expires_at)) {
+              <span class="badge">Expired</span>
+            }
+            <div class="target muted" [title]="link.long_url">{{ link.long_url }}</div>
+            <div class="dates muted">
+              Created {{ link.created_at | date: 'medium' }} &middot;
+              {{ isExpired(link.expires_at) ? 'Expired' : 'Expires' }} {{ link.expires_at | date: 'medium' }}
+            </div>
+          </div>
+          <div class="actions">
+            <app-copy-button [text]="shortUrlFor(link.short_code)" />
+            <a class="btn" [routerLink]="['/links', link.short_code]">Clicks</a>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+
+  @if (loading()) {
+    <p class="muted" role="status">Loading...</p>
+  } @else if (nextPageToken() && !loadError()) {
+    <button type="button" class="btn" (click)="loadMore()">Load more</button>
+  }
+</section>

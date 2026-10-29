@@ -1,0 +1,33 @@
+<section class="card narrow">
+  @switch (state()) {
+    @case ('working') {
+      <h1>Checking your link</h1>
+      <p class="muted" role="status">One moment.</p>
+    }
+    @case ('done') {
+      <h1>You are signed in</h1>
+      @if (credentials(); as credentials) {
+        <app-key-reveal [apiKey]="credentials.api_key" />
+      }
+      <p class="result"><button type="button" class="btn btn-primary" (click)="continue()">I have saved my key, continue</button></p>
+    }
+    @case ('invalid') {
+      <h1>This link does not work</h1>
+      <p>It may have expired or been used already. Links work once and expire after 24 hours.</p>
+      <p><a routerLink="/signup">Get a new link</a> or <a routerLink="/recover">replace a lost key</a>.</p>
+    }
+    @case ('taken') {
+      <h1>This address already has an account</h1>
+      <p>
+        Someone created an account for it while this link was on its way. If that was you and you lost your key,
+        <a routerLink="/recover">get a new one</a>.
+      </p>
+    }
+    @default {
+      <h1>We could not check your link</h1>
+      <p role="alert">{{ failure() }}</p>
+      <p>The link may have been used up by this attempt, so ask for a new one.</p>
+      <p><a routerLink="/signup">Get a new link</a> or <a routerLink="/recover">replace a lost key</a>.</p>
+    }
+  }
+</section>
