@@ -203,6 +203,21 @@ public class AccountStoreTests : IntegrationTestBase
     }
 
     [Test]
+    public async Task DeletingClickStatistics_LeavesACounterThatStartsAgainFromZero()
+    {
+        var clicks = Services.GetRequiredService<IClickRepository>();
+        var shortCode = NewShortCode();
+        await clicks.AddClicksAsync(shortCode, 5, Now);
+
+        await clicks.DeleteAsync(shortCode);
+        Assert.That(await clicks.GetAsync(shortCode), Is.EqualTo(new ClickStats(0, null)));
+
+        // A deleted Cassandra counter can bring its old value back; a reused short code must not inherit it.
+        await clicks.AddClicksAsync(shortCode, 2, Now.AddMinutes(1));
+        Assert.That((await clicks.GetAsync(shortCode)).TotalClicks, Is.EqualTo(2));
+    }
+
+    [Test]
     public async Task UrlCache_Remove_DeletesTheEntry_AndIgnoresAMissingOne()
     {
         var cache = Services.GetRequiredService<IUrlCache>();

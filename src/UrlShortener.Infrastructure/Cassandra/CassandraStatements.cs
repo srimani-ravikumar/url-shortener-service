@@ -90,9 +90,6 @@ public sealed class CassandraStatements
     private const string DeleteUserUrlsCql =
         "DELETE FROM urls_by_user WHERE user_id = ?";
 
-    private const string DeleteClicksCql =
-        "DELETE FROM url_clicks WHERE short_code = ?";
-
     private const string DeleteLastAccessCql =
         "DELETE FROM url_last_access WHERE short_code = ?";
 
@@ -150,8 +147,6 @@ public sealed class CassandraStatements
 
     public required PreparedStatement DeleteUserUrls { get; init; }
 
-    public required PreparedStatement DeleteClicks { get; init; }
-
     public required PreparedStatement DeleteLastAccess { get; init; }
 
     public static async Task<CassandraStatements> PrepareAsync(ISession session) => new()
@@ -181,7 +176,6 @@ public sealed class CassandraStatements
         DeleteEmailToken = await session.PrepareAsync(DeleteEmailTokenCql),
         DeleteMapping = await session.PrepareAsync(DeleteMappingCql),
         DeleteUserUrls = await session.PrepareAsync(DeleteUserUrlsCql),
-        DeleteClicks = await session.PrepareAsync(DeleteClicksCql),
         DeleteLastAccess = await session.PrepareAsync(DeleteLastAccessCql),
     };
 }

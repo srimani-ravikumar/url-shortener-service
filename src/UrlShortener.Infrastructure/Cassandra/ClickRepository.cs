@@ -40,7 +40,14 @@ public sealed class ClickRepository(CassandraConnection connection) : IClickRepo
     {
         var context = await connection.GetContextAsync(cancellationToken);
 
-        await context.ExecuteAsync(context.Statements.DeleteClicks.Bind(shortCode), cancellationToken);
+        // Deleting a counter row is unreliable in Cassandra: later increments can bring the old value back, and a
+        // reused short code would inherit it. Subtracting the current value leaves a counter that stays at zero.
+        var current = (await GetAsync(shortCode, cancellationToken)).TotalClicks;
+        if (current != 0)
+        {
+            await context.ExecuteAsync(context.Statements.AddClicks.Bind(-current, shortCode), cancellationToken);
+        }
+
         await context.ExecuteAsync(context.Statements.DeleteLastAccess.Bind(shortCode), cancellationToken);
     }
 }
