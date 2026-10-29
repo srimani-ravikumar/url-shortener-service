@@ -1,0 +1,14 @@
+{
+  "name": "url-shortener-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Records an end-to-end demo video (mp4) of the running local stack.",
+  "scripts": {
+    "record": "node record-demo.mjs"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "playwright": "^1.49.0"
+  }
+}
