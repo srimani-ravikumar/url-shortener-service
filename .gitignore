@@ -15,7 +15,6 @@ scripts/.dev-*.json
 
 ## Demo recorder: dependencies and the recorded video
 scripts/demo/node_modules/
-scripts/demo/output/
 
 ## OS / editor
 .DS_Store
