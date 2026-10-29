@@ -29,7 +29,7 @@ flowchart TB
 
         redirector["<b>Redirector API (read), N replicas</b><br/><br/>GET /{short_code}<br/><br/>Returns: 302 / 404 / 410"]
 
-        worker["<b>Analytics Worker</b><br/><br/>Flush Buffered Clicks<br/>Checkpoint ID Counter"]
+        worker["<b>Analytics Worker (background)</b><br/><br/>Flush Buffered Clicks<br/>Checkpoint ID Counter"]
     end
 
     subgraph data["Data Stores"]
@@ -85,7 +85,7 @@ Table definitions, relationships and Redis keys for the data stores are in [db-s
 | Load Balancer (Nginx) | Single entry point; path-based routing; load balancing |
 | Shortener API (write) | `POST /api/v1/shorten`, `GET /api/v1/analytics/{short_code}`, `GET /api/v1/users/{user_id}/urls` |
 | Redirector API (read) | `GET /{short_code}`, records clicks in Redis |
-| Analytics Worker | Flushes buffered clicks from Redis to Cassandra; checkpoints the ID counter |
+| Analytics Worker (background) | Flushes buffered clicks from Redis to Cassandra; checkpoints the ID counter |
 
 ## Where to go next
 
