@@ -2,7 +2,7 @@
 ###
 ### 1. Start the stack:       docker compose -f deploy/docker-compose.yml up -d
 ### 2. Create a dev user:     ./scripts/New-DevUser.ps1      (prints the user id and API key)
-### 3. Run the API:           dotnet run --project src/UrlShortener.Shortener.Api --launch-profile http
+### 3. Run the API:           dotnet run --project src/api/UrlShortener.Shortener.Api --launch-profile http
 ### 4. Paste the key and user id below, then send the requests.
 
 @baseUrl = http://localhost:5221

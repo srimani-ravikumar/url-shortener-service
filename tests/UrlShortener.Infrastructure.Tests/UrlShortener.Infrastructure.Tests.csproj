@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\UrlShortener.Infrastructure\UrlShortener.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\api\UrlShortener.Infrastructure\UrlShortener.Infrastructure.csproj" />
     <ProjectReference Include="..\UrlShortener.TestSupport\UrlShortener.TestSupport.csproj" />
   </ItemGroup>
 

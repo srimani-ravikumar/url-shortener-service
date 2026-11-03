@@ -5,15 +5,15 @@ WORKDIR /src
 
 # Restore first, from project files only, so this slow layer is reused until a package changes.
 COPY Directory.Build.props Directory.Packages.props nuget.config .editorconfig ./
-COPY src/UrlShortener.Core/UrlShortener.Core.csproj src/UrlShortener.Core/
-COPY src/UrlShortener.Infrastructure/UrlShortener.Infrastructure.csproj src/UrlShortener.Infrastructure/
-COPY src/UrlShortener.Shortener.Api/UrlShortener.Shortener.Api.csproj src/UrlShortener.Shortener.Api/
-RUN dotnet restore src/UrlShortener.Shortener.Api/UrlShortener.Shortener.Api.csproj
+COPY src/api/UrlShortener.Core/UrlShortener.Core.csproj src/api/UrlShortener.Core/
+COPY src/api/UrlShortener.Infrastructure/UrlShortener.Infrastructure.csproj src/api/UrlShortener.Infrastructure/
+COPY src/api/UrlShortener.Shortener.Api/UrlShortener.Shortener.Api.csproj src/api/UrlShortener.Shortener.Api/
+RUN dotnet restore src/api/UrlShortener.Shortener.Api/UrlShortener.Shortener.Api.csproj
 
-COPY src/UrlShortener.Core/ src/UrlShortener.Core/
-COPY src/UrlShortener.Infrastructure/ src/UrlShortener.Infrastructure/
-COPY src/UrlShortener.Shortener.Api/ src/UrlShortener.Shortener.Api/
-RUN dotnet publish src/UrlShortener.Shortener.Api/UrlShortener.Shortener.Api.csproj \
+COPY src/api/UrlShortener.Core/ src/api/UrlShortener.Core/
+COPY src/api/UrlShortener.Infrastructure/ src/api/UrlShortener.Infrastructure/
+COPY src/api/UrlShortener.Shortener.Api/ src/api/UrlShortener.Shortener.Api/
+RUN dotnet publish src/api/UrlShortener.Shortener.Api/UrlShortener.Shortener.Api.csproj \
     -c Release --no-restore -o /app/publish /p:UseAppHost=false
 
 # Alpine (not the shell-less "chiseled" image) because the compose health check needs wget.

@@ -21,18 +21,18 @@ scripts/demo/node_modules/
 Thumbs.db
 
 ## Web (Angular)
-web/dist/
-web/tmp/
-web/out-tsc/
-web/bazel-out/
-web/node_modules/
-web/.angular/cache
-web/.sass-cache/
-web/connect.lock
-web/libpeerconnection.log
-web/testem.log
-web/typings/
-web/__screenshots__/
+src/web/dist/
+src/web/tmp/
+src/web/out-tsc/
+src/web/bazel-out/
+src/web/node_modules/
+src/web/.angular/cache
+src/web/.sass-cache/
+src/web/connect.lock
+src/web/libpeerconnection.log
+src/web/testem.log
+src/web/typings/
+src/web/__screenshots__/
 npm-debug.log
 yarn-error.log
 

@@ -56,7 +56,7 @@ services:
   shortener-api:
     build:
       context: ..
-      dockerfile: src/UrlShortener.Shortener.Api/Dockerfile
+      dockerfile: src/api/UrlShortener.Shortener.Api/Dockerfile
     restart: unless-stopped
     depends_on:
       cassandra-init:
@@ -97,7 +97,7 @@ services:
   redirector-api:
     build:
       context: ..
-      dockerfile: src/UrlShortener.Redirector.Api/Dockerfile
+      dockerfile: src/api/UrlShortener.Redirector.Api/Dockerfile
     restart: unless-stopped
     depends_on:
       cassandra-init:
@@ -121,7 +121,7 @@ services:
   analytics-worker:
     build:
       context: ..
-      dockerfile: src/UrlShortener.AnalyticsWorker/Dockerfile
+      dockerfile: src/api/UrlShortener.AnalyticsWorker/Dockerfile
     restart: unless-stopped
     depends_on:
       cassandra-init:
@@ -144,7 +144,7 @@ services:
   # The Angular app, served under /app/ (nginx below forwards that path here). No host port.
   web:
     build:
-      context: ../web
+      context: ../src/web
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]

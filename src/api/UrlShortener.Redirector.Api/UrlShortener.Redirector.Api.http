@@ -2,7 +2,7 @@
 ###
 ### 1. Start the stack:   docker compose -f deploy/docker-compose.yml up -d
 ### 2. Create a link with the Shortener API (see UrlShortener.Shortener.Api.http) and copy its short code.
-### 3. Run the API:       dotnet run --project src/UrlShortener.Redirector.Api --launch-profile http
+### 3. Run the API:       dotnet run --project src/api/UrlShortener.Redirector.Api --launch-profile http
 ###
 ### The editor follows redirects by default; to see the 302 itself, turn that off (REST Client setting
 ### "rest-client.followRedirect") or use: curl -i http://localhost:5136/<code>

@@ -1,6 +1,6 @@
 # Data Design: Cassandra and Redis Schema
 
-Companion to [design.md](design.md) (section 3) and [architecture.md](architecture.md). Source of truth for the definitions: [schema.cql](../../deploy/cassandra/schema.cql) and [RedisKeys.cs](../../src/UrlShortener.Infrastructure/Redis/RedisKeys.cs).
+Companion to [design.md](design.md) (section 3) and [architecture.md](architecture.md). Source of truth for the definitions: [schema.cql](../../deploy/cassandra/schema.cql) and [RedisKeys.cs](../../src/api/UrlShortener.Infrastructure/Redis/RedisKeys.cs).
 
 Cassandra is the **system of record**. Redis holds **disposable or rebuildable state**: a read cache, a click buffer, and the ID counter.
 

@@ -7,7 +7,7 @@ tests/
 scripts/
 deploy/
 docs/
-web/
+src/web/
 **/*.user
 **/.env
 **/appsettings.Development.json

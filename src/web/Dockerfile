@@ -1,4 +1,4 @@
-# Build context is the web/ folder (see deploy/docker-compose.yml).
+# Build context is the src/web/ folder (see deploy/docker-compose.yml).
 
 FROM node:24-alpine AS build
 WORKDIR /app

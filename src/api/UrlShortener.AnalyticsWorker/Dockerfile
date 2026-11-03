@@ -5,15 +5,15 @@ WORKDIR /src
 
 # Restore first, from project files only, so this slow layer is reused until a package changes.
 COPY Directory.Build.props Directory.Packages.props nuget.config .editorconfig ./
-COPY src/UrlShortener.Core/UrlShortener.Core.csproj src/UrlShortener.Core/
-COPY src/UrlShortener.Infrastructure/UrlShortener.Infrastructure.csproj src/UrlShortener.Infrastructure/
-COPY src/UrlShortener.AnalyticsWorker/UrlShortener.AnalyticsWorker.csproj src/UrlShortener.AnalyticsWorker/
-RUN dotnet restore src/UrlShortener.AnalyticsWorker/UrlShortener.AnalyticsWorker.csproj
+COPY src/api/UrlShortener.Core/UrlShortener.Core.csproj src/api/UrlShortener.Core/
+COPY src/api/UrlShortener.Infrastructure/UrlShortener.Infrastructure.csproj src/api/UrlShortener.Infrastructure/
+COPY src/api/UrlShortener.AnalyticsWorker/UrlShortener.AnalyticsWorker.csproj src/api/UrlShortener.AnalyticsWorker/
+RUN dotnet restore src/api/UrlShortener.AnalyticsWorker/UrlShortener.AnalyticsWorker.csproj
 
-COPY src/UrlShortener.Core/ src/UrlShortener.Core/
-COPY src/UrlShortener.Infrastructure/ src/UrlShortener.Infrastructure/
-COPY src/UrlShortener.AnalyticsWorker/ src/UrlShortener.AnalyticsWorker/
-RUN dotnet publish src/UrlShortener.AnalyticsWorker/UrlShortener.AnalyticsWorker.csproj \
+COPY src/api/UrlShortener.Core/ src/api/UrlShortener.Core/
+COPY src/api/UrlShortener.Infrastructure/ src/api/UrlShortener.Infrastructure/
+COPY src/api/UrlShortener.AnalyticsWorker/ src/api/UrlShortener.AnalyticsWorker/
+RUN dotnet publish src/api/UrlShortener.AnalyticsWorker/UrlShortener.AnalyticsWorker.csproj \
     -c Release --no-restore -o /app/publish /p:UseAppHost=false
 
 # Alpine (not the shell-less "chiseled" image) because the compose health check needs wget.

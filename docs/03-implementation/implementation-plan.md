@@ -27,7 +27,7 @@ Step-by-step, phase-wise procedure to implement the URL Shortener as per [requir
 | Accounts (Phases 12-16) | Self-service sign-up with email verification replaces the "no sign-up in v1" decision; one account per email, one active API key per user |
 | Email delivery | SMTP via MailKit (`Smtp:*` settings, password from the environment); MailPit as the local catch-all in compose |
 | Account deletion | Deletes the account **and all of its links** (redirects then return `404`) |
-| Web UI | Angular app with plain SCSS (no UI library) in `web/`, served by its own nginx container under `/app/` on the same origin (no CORS); API key kept in `sessionStorage` |
+| Web UI | Angular app with plain SCSS (no UI library) in `src/web/`, served by its own nginx container under `/app/` on the same origin (no CORS); API key kept in `sessionStorage` |
 | Code conventions | Readability first: XML doc comments on public types/members, short comments explaining *why* (not *what*) for non-obvious logic, small focused classes; the same applies to tests and scripts |
 
 ## Target Solution Layout
@@ -40,11 +40,13 @@ URL_Shortener_Service/
 │   ├── 03-implementation/              # This plan, with per-phase status, deviations and verification results
 │   └── notes/                          # Early scratch notes
 ├── src/
-│   ├── UrlShortener.Core/              # Domain: Base62, Feistel, validation, TTL math (no I/O)
-│   ├── UrlShortener.Infrastructure/    # Cassandra + Redis access, shared OTel/health wiring
-│   ├── UrlShortener.Shortener.Api/     # Write service: POST /api/v1/shorten, analytics, user links
-│   ├── UrlShortener.Redirector.Api/    # Read service: GET /{short_code}
-│   └── UrlShortener.AnalyticsWorker/   # Flushes buffered clicks Redis → Cassandra
+│   ├── api/                            # All .NET services
+│   │   ├── UrlShortener.Core/              # Domain: Base62, Feistel, validation, TTL math (no I/O)
+│   │   ├── UrlShortener.Infrastructure/    # Cassandra + Redis access, shared OTel/health wiring
+│   │   ├── UrlShortener.Shortener.Api/     # Write service: POST /api/v1/shorten, analytics, user links
+│   │   ├── UrlShortener.Redirector.Api/    # Read service: GET /{short_code}
+│   │   └── UrlShortener.AnalyticsWorker/   # Flushes buffered clicks Redis → Cassandra
+│   └── web/                            # Angular app, served under /app/
 ├── tests/
 │   ├── UrlShortener.Core.Tests/        # NUnit
 │   ├── UrlShortener.Infrastructure.Tests/  # integration tests against the Docker stack
@@ -130,7 +132,7 @@ Notes:
 
 **Exit criteria:** NUnit tests cover round-trips (Base62, Feistel), collision-free permutation on sample ranges, and all validation edge cases.
 
-**Status: done.** Code in `src/UrlShortener.Core` (`ShortCodes/`, `Validation/`, `Expiry/`), 90 NUnit tests in `tests/UrlShortener.Core.Tests`, all passing with warnings-as-errors.
+**Status: done.** Code in `src/api/UrlShortener.Core` (`ShortCodes/`, `Validation/`, `Expiry/`), 90 NUnit tests in `tests/UrlShortener.Core.Tests`, all passing with warnings-as-errors.
 
 Implementation notes for later phases:
 - Base62 alphabet is `0-9a-zA-Z`. `FeistelObfuscator.FromSecret(secret)` derives the key from a configuration secret (SHA-256); the secret must stay constant for the lifetime of the data, since changing it changes all future codes (existing links are unaffected because codes are stored, not recomputed).
@@ -156,7 +158,7 @@ Implementation notes for later phases:
 
 **Exit criteria:** Repositories compile and are exercised by the services in later phases.
 
-**Status: done.** Interfaces and models are in `src/UrlShortener.Core/Storage` (so the APIs can be tested with fakes); implementations are in `src/UrlShortener.Infrastructure` (`Cassandra/`, `Redis/`, `IdCounterDurability`, `AddUrlShortenerInfrastructure(configuration)`). 48 integration tests in `tests/UrlShortener.Infrastructure.Tests` run against the real Docker stack and pass.
+**Status: done.** Interfaces and models are in `src/api/UrlShortener.Core/Storage` (so the APIs can be tested with fakes); implementations are in `src/api/UrlShortener.Infrastructure` (`Cassandra/`, `Redis/`, `IdCounterDurability`, `AddUrlShortenerInfrastructure(configuration)`). 48 integration tests in `tests/UrlShortener.Infrastructure.Tests` run against the real Docker stack and pass.
 
 Implementation notes for later phases:
 - **Wiring:** call `services.AddUrlShortenerInfrastructure(builder.Configuration)`; settings come from the `Cassandra`, `Redis` and `IdCounter` sections. Nothing connects until first use. The Redis connection starts even if Redis is down (`AbortOnConnectFail=false`).
@@ -188,10 +190,10 @@ Implementation notes for later phases:
 
 **Exit criteria:** NUnit tests (WebApplicationFactory with faked repositories) cover 201/400/401/403/409 paths.
 
-**Status: done.** Code in `src/UrlShortener.Shortener.Api` (`Controllers/`, `Services/`, `Authentication/`, `Middleware/`, `Configuration/`, `Extensions/`); 54 in-memory tests in `tests/UrlShortener.Shortener.Api.Tests` plus 5 new unit tests for the key hasher. A live smoke test against the real Docker stack also passed (201/409/400/401/403/404, correct row TTLs in Cassandra).
+**Status: done.** Code in `src/api/UrlShortener.Shortener.Api` (`Controllers/`, `Services/`, `Authentication/`, `Middleware/`, `Configuration/`, `Extensions/`); 54 in-memory tests in `tests/UrlShortener.Shortener.Api.Tests` plus 5 new unit tests for the key hasher. A live smoke test against the real Docker stack also passed (201/409/400/401/403/404, correct row TTLs in Cassandra).
 
 Implementation notes for later phases:
-- **Run it:** `dotnet run --project src/UrlShortener.Shortener.Api --launch-profile http` (port 5221); requests are in `UrlShortener.Shortener.Api.http`. In Development the Feistel secret comes from `appsettings.Development.json`; in any other environment `Shortener:FeistelSecret` (at least 16 characters) must be supplied, e.g. `Shortener__FeistelSecret` as an environment variable, or the service refuses to start.
+- **Run it:** `dotnet run --project src/api/UrlShortener.Shortener.Api --launch-profile http` (port 5221); requests are in `UrlShortener.Shortener.Api.http`. In Development the Feistel secret comes from `appsettings.Development.json`; in any other environment `Shortener:FeistelSecret` (at least 16 characters) must be supplied, e.g. `Shortener__FeistelSecret` as an environment variable, or the service refuses to start.
 - **Settings:** `Shortener:ShortUrlBase` (default `http://localhost:8080`, the future Nginx address), `Shortener:MaxGenerateAttempts` (3), `RateLimit:TokenLimit/TokensPerPeriod/ReplenishmentPeriodSeconds` (100 / 10 / 6 s = 100 per minute), and an optional `Expiry` section.
 - **Authentication is the fallback policy:** every endpoint needs a valid key unless marked `[AllowAnonymous]`. Unknown paths also answer 401 without a key (routes cannot be probed anonymously). Add `/health/*` (Phase 7) as `AllowAnonymous`.
 - **Rate limit is per user** (a user with several keys shares one bucket); requests without a valid key share a bucket per client address. Limits are per instance (the plan's accepted v1 trade-off). Behind Nginx (Phase 8) the service needs forwarded-headers handling so the client address is the real one.
@@ -215,10 +217,10 @@ Implementation notes for later phases:
 
 **Exit criteria:** Tests cover cache hit, cache miss, 404, 410; Redis outage still serves redirects from Cassandra.
 
-**Status: done.** Code in `src/UrlShortener.Redirector.Api` (`Controllers/RedirectController`, `Services/RedirectService`, `Configuration/`, `Extensions/`); 27 in-memory tests in `tests/UrlShortener.Redirector.Api.Tests`. Verified live with both APIs against the real Docker stack: first request ~1.2 s (cold start), warm requests 3-11 ms, correct `302`/`404`/`410`, Redis holds `url:{code}` (TTL 24 h) and `clicks:{code}`, and with Redis stopped redirects kept working at 9-18 ms.
+**Status: done.** Code in `src/api/UrlShortener.Redirector.Api` (`Controllers/RedirectController`, `Services/RedirectService`, `Configuration/`, `Extensions/`); 27 in-memory tests in `tests/UrlShortener.Redirector.Api.Tests`. Verified live with both APIs against the real Docker stack: first request ~1.2 s (cold start), warm requests 3-11 ms, correct `302`/`404`/`410`, Redis holds `url:{code}` (TTL 24 h) and `clicks:{code}`, and with Redis stopped redirects kept working at 9-18 ms.
 
 Implementation notes for later phases:
-- **Run it:** `dotnet run --project src/UrlShortener.Redirector.Api --launch-profile http` (port 5136); requests in `UrlShortener.Redirector.Api.http`. Settings: `Redirector:ClientCacheMaxAgeSeconds` (60; 0 = `Cache-Control: no-store`), `Redis:OperationTimeoutMs` (100 for this service), optional `Expiry` section.
+- **Run it:** `dotnet run --project src/api/UrlShortener.Redirector.Api --launch-profile http` (port 5136); requests in `UrlShortener.Redirector.Api.http`. Settings: `Redirector:ClientCacheMaxAgeSeconds` (60; 0 = `Cache-Control: no-store`), `Redis:OperationTimeoutMs` (100 for this service), optional `Expiry` section.
 - **Lookup order:** format check → cache → Cassandra. A code that cannot be a short code (`ShortCodeFormat`: 1-50 of `A-Za-z0-9_-`, e.g. `favicon.ico`) is answered `404` with no lookup at all. The cache write and the click record run in the background (never delay the response); failures are logged and ignored.
 - **A click is a successful `302` only** (cache hit or database), never `404`/`410`. Browsers or a CDN honouring `max-age` will not come back during that window, so those repeat views are not counted (that is why the default is only 60 s).
 - **Redis outage:** Redis is configured to fail fast while disconnected (`BacklogPolicy.FailFast`, in `CreateRedisConfiguration`). Without it each request waited the whole timeout (a test measured about 1 s per request). Redis failures are logged at most once per 30 s (`ThrottledLogger`) with a count of the suppressed ones; otherwise an outage logs three stack traces per redirect.
@@ -241,10 +243,10 @@ Implementation notes for later phases:
 
 **Exit criteria:** Clicks generated via the redirector appear in `GET /api/v1/analytics/{code}` after one flush interval.
 
-**Status: done.** Code in `src/UrlShortener.AnalyticsWorker` (`Services/ClickFlusher`, `ClickFlushService`, `CounterCheckpointService`, `PeriodicBackgroundService`; `Configuration/WorkerOptions`; `Extensions/`); 22 tests in `tests/UrlShortener.AnalyticsWorker.Tests` (flusher logic, timed services, and the real service registration). Verified live with all three services against the Docker stack, using 2 s intervals: 5 clicks appeared in the analytics API after the first flush; the counter checkpoint matched Redis; then with Cassandra stopped while 6 more clicks arrived (served from the Redis cache), the worker kept all 6 in Redis and logged the outage once per 30 s, and after Cassandra restarted the total came out as exactly 11 (nothing lost, nothing doubled), 31 s after the restart.
+**Status: done.** Code in `src/api/UrlShortener.AnalyticsWorker` (`Services/ClickFlusher`, `ClickFlushService`, `CounterCheckpointService`, `PeriodicBackgroundService`; `Configuration/WorkerOptions`; `Extensions/`); 22 tests in `tests/UrlShortener.AnalyticsWorker.Tests` (flusher logic, timed services, and the real service registration). Verified live with all three services against the Docker stack, using 2 s intervals: 5 clicks appeared in the analytics API after the first flush; the counter checkpoint matched Redis; then with Cassandra stopped while 6 more clicks arrived (served from the Redis cache), the worker kept all 6 in Redis and logged the outage once per 30 s, and after Cassandra restarted the total came out as exactly 11 (nothing lost, nothing doubled), 31 s after the restart.
 
 Implementation notes for later phases:
-- **Run it:** `dotnet run --project src/UrlShortener.AnalyticsWorker --no-build`. Settings (`Worker` section): `FlushInterval` (10 s), `FlushBatchSize` (500), `FlushConcurrency` (8), `CheckpointInterval` (30 s). Override with environment variables such as `Worker__FlushInterval=00:00:02`. Invalid values stop the worker at startup. The checkpoint interval times the peak ids per second (350/s in the capacity plan) must stay well under `IdCounter:SafetyGap` (100,000 by default; 30 s x 350 = about 10,500).
+- **Run it:** `dotnet run --project src/api/UrlShortener.AnalyticsWorker --no-build`. Settings (`Worker` section): `FlushInterval` (10 s), `FlushBatchSize` (500), `FlushConcurrency` (8), `CheckpointInterval` (30 s). Override with environment variables such as `Worker__FlushInterval=00:00:02`. Invalid values stop the worker at startup. The checkpoint interval times the peak ids per second (350/s in the capacity plan) must stay well under `IdCounter:SafetyGap` (100,000 by default; 30 s x 350 = about 10,500).
 - **Flush cycle:** pop up to a batch of changed codes, take each link's buffered clicks (atomic read-and-clear), write them (last-access time first, then the counter), put them back if the write fails. A cycle lasts at most one flush interval (popular links keep receiving clicks, so "until empty" could never end), and ends early when a whole batch fails (Cassandra is most likely down). A failed link goes back into the changed set and may be tried again within the same cycle.
 - **Shutdown:** a batch that was taken from Redis is always finished or put back; stopping is only honoured between batches, so a clean stop loses nothing. The checkpoint service saves one last checkpoint on shutdown.
 - **Delivery guarantee:** "at least once, almost exactly once". An ordinary Cassandra outage loses nothing. Rare losses or double counts remain, because a Cassandra counter update cannot be safely repeated: a process kill between removing clicks from Redis and writing them loses them; a write that succeeds but reports a timeout is counted twice on retry. Redis losing its data loses the buffered clicks (at most one flush interval's worth, plus whatever accumulated during a Cassandra outage).
@@ -262,7 +264,7 @@ Implementation notes for later phases:
 
 **Exit criteria:** A redirect shows a full trace in Grafana/Tempo and its metrics in Prometheus.
 
-**Status: done.** Code in `src/UrlShortener.Infrastructure` (`Telemetry/`, `Health/`), wired into all three services; compose `observability` profile and configs in `deploy/otel/`. The full solution has 294 passing tests. Verified live with all three services plus the observability stack: a redirect trace in Tempo (`GET {shortCode}` > `cache.get` > `cassandra.execute` on a cache miss, plus `clicks.record`), redirect, cache and flush metrics in Prometheus, logs from all three services in Loki (and none containing the long-URL secret that was sent), and the provisioned Grafana dashboard with its three data sources.
+**Status: done.** Code in `src/api/UrlShortener.Infrastructure` (`Telemetry/`, `Health/`), wired into all three services; compose `observability` profile and configs in `deploy/otel/`. The full solution has 294 passing tests. Verified live with all three services plus the observability stack: a redirect trace in Tempo (`GET {shortCode}` > `cache.get` > `cassandra.execute` on a cache miss, plus `clicks.record`), redirect, cache and flush metrics in Prometheus, logs from all three services in Loki (and none containing the long-URL secret that was sent), and the provisioned Grafana dashboard with its three data sources.
 
 Implementation notes for later phases:
 - **Health:** `/health/live` (process only) and `/health/ready` (Cassandra + Redis) on both APIs and on the worker, which now hosts a tiny web server on port 5137. The worker's live check also fails if its loops stop ticking. On the Redirector a dead Redis is `Degraded` (still answers 200) because redirects work without it; on the Shortener and the worker it is `Unhealthy`. The endpoints are `AllowAnonymous` (the Shortener API requires authentication by default).
@@ -289,7 +291,7 @@ Implementation notes for later phases:
 
 **Exit criteria:** `docker compose up` → create a link → follow it → see analytics, all end-to-end.
 
-**Status: done.** Files: `src/UrlShortener.{Shortener.Api,Redirector.Api,AnalyticsWorker}/Dockerfile`, `.dockerignore`, `deploy/nginx/default.conf`, `deploy/.env.example`, and the new services in `deploy/docker-compose.yml`. Verified with `docker compose up -d --build`: all services healthy; through `http://localhost:8080` a link was created (201, `short_url` on port 8080), followed five times (302), an unknown code gave 404, the click total reached 5 in the analytics API after one flush, and a call without a key got 401 from the shortener. With `--scale redirector-api=3`, 120 redirects were spread over the three replicas (47/33/40). All three containers run as the non-root user (uid 1654) and no log line contained the long-URL secret.
+**Status: done.** Files: `src/api/UrlShortener.{Shortener.Api,Redirector.Api,AnalyticsWorker}/Dockerfile`, `.dockerignore`, `deploy/nginx/default.conf`, `deploy/.env.example`, and the new services in `deploy/docker-compose.yml`. Verified with `docker compose up -d --build`: all services healthy; through `http://localhost:8080` a link was created (201, `short_url` on port 8080), followed five times (302), an unknown code gave 404, the click total reached 5 in the analytics API after one flush, and a call without a key got 401 from the shortener. With `--scale redirector-api=3`, 120 redirects were spread over the three replicas (47/33/40). All three containers run as the non-root user (uid 1654) and no log line contained the long-URL secret.
 
 **Deviations from the plan above:**
 
@@ -500,7 +502,7 @@ Tokens are 32 random bytes (Base64Url); only the SHA-256 is stored. A token work
 
 **Exit criteria:** NUnit tests (fake email sender and repositories) cover the happy paths, expired/reused tokens, duplicate email, enumeration-safe responses, throttling, rotate, and delete (links gone, redirect `404`, cache cleared); integration tests cover the new Cassandra tables.
 
-**Status: done.** Code: `src/UrlShortener.Core` (`Storage/IUserRepository`, `IEmailTokenStore`, `ICooldownStore`; `Validation/EmailAddressValidator`; `Security/SecretGenerator`), `src/UrlShortener.Infrastructure` (`Cassandra/UserRepository`, `EmailTokenStore`, new statements; `Redis/RedisCooldownStore`; delete operations on the link, click and cache stores), `src/UrlShortener.Shortener.Api` (`Controllers/RegistrationController`, `MeController`; `Services/AccountService`, `AccountMessages`; `Email/SmtpEmailSender`; `Configuration/AccountOptions`). 366 automated tests pass (Core 134, Shortener.Api 88, Infrastructure 80 against the live stack, Redirector 34, Worker 30); the build has 0 warnings with `-warnaserror`. Verified live against real Cassandra, Redis and a MailPit container: sign-up mail arrives with the link, verify returns the key once (`Cache-Control: no-store`), a second use of the token gives `400`, `/users/me` works, two links were created, rotate revokes the old key (`401`), delete returns `204` and leaves no rows in `users`, `users_by_email` or `urls_by_user`. Re-running `schema.cql` twice on the running Cassandra succeeds (the `ALTER TABLE ... ADD IF NOT EXISTS` is idempotent).
+**Status: done.** Code: `src/api/UrlShortener.Core` (`Storage/IUserRepository`, `IEmailTokenStore`, `ICooldownStore`; `Validation/EmailAddressValidator`; `Security/SecretGenerator`), `src/api/UrlShortener.Infrastructure` (`Cassandra/UserRepository`, `EmailTokenStore`, new statements; `Redis/RedisCooldownStore`; delete operations on the link, click and cache stores), `src/api/UrlShortener.Shortener.Api` (`Controllers/RegistrationController`, `MeController`; `Services/AccountService`, `AccountMessages`; `Email/SmtpEmailSender`; `Configuration/AccountOptions`). 366 automated tests pass (Core 134, Shortener.Api 88, Infrastructure 80 against the live stack, Redirector 34, Worker 30); the build has 0 warnings with `-warnaserror`. Verified live against real Cassandra, Redis and a MailPit container: sign-up mail arrives with the link, verify returns the key once (`Cache-Control: no-store`), a second use of the token gives `400`, `/users/me` works, two links were created, rotate revokes the old key (`401`), delete returns `204` and leaves no rows in `users`, `users_by_email` or `urls_by_user`. Re-running `schema.cql` twice on the running Cassandra succeeds (the `ALTER TABLE ... ADD IF NOT EXISTS` is idempotent).
 
 **Deviations from the plan above:**
 
@@ -522,7 +524,7 @@ Implementation notes for later phases:
 
 ## Phase 13 — Angular App: Scaffold and Core
 
-**Goal:** A buildable app in `web/` with the shared plumbing. **Status: done** (details after the exit criteria).
+**Goal:** A buildable app in `src/web/` with the shared plumbing. **Status: done** (details after the exit criteria).
 
 1. Angular CLI project at the current stable version (pinned in `package.json`; Node version pinned in the Dockerfile and CI), standalone components, signals, strict TypeScript, **plain SCSS** (a small design-token file for colours, spacing and typography; no UI library).
 2. `<base href="/app/">`; dev server proxies `/api` to `http://localhost:8080` so the dev setup is also same-origin.
@@ -533,7 +535,7 @@ Implementation notes for later phases:
 
 **Status: done.** Angular 22.2 (CLI 22.2.5), standalone components and signals, Vitest through `ng test`, ESLint (`angular-eslint`), Node 24 (`engines` in `package.json`; Dockerfile and CI pins come in Phases 15-16). `npm run lint`, `npm run test:ci` (58 tests in 10 files) and `npm run build` (245 kB initial, 68 kB transferred) pass. Verified with the dev server: `/app/`, a deep link such as `/app/some/deep/link` and the production `index.html` all carry `<base href="/app/">`.
 
-Layout of `web/src`:
+Layout of `src/web/src`:
 - `app/core/`: `api-client.ts` (one typed method per endpoint, relative `/api/v1/...` URLs), `api.models.ts` (snake_case DTOs), `api-error.ts` (`ApiError` and `toApiError` for RFC 7807 problems), `auth.service.ts` (key in `sessionStorage`; `signIn`, `acceptCredentials`, `ensureAccount`, `signOut`), `interceptors.ts` (API key header, 401 handling, error conversion, loading counter), `auth.guard.ts`, `toast.service.ts`, `loading.service.ts`, `http-context.ts`.
 - `app/layout/`: `header` (brand, email and sign-out for a signed-in user) and `toasts`; `app.html` adds the progress bar and `router-outlet`.
 - `app/pages/home.ts`: a placeholder start page, replaced by the sign-in page in Phase 14. `app.routes.ts` had only `''` and a redirect for unknown paths.
@@ -549,7 +551,7 @@ Layout of `web/src`:
 | Route guard "for signed-in pages" | `authGuard` is written and tested but not yet used by a route | No page needs it until Phase 14. |
 
 Implementation notes for later phases:
-- **Run it:** `cd web; npm ci; npm start` serves `http://localhost:4200/app/` and forwards `/api` to `http://localhost:8080` (`proxy.conf.json`), so the stack must be running (`Start-Dev.ps1`) for API calls. Other scripts: `npm run lint`, `npm run test:ci`, `npm run build` (output in `web/dist/web/browser`).
+- **Run it:** `cd src/web; npm ci; npm start` serves `http://localhost:4200/app/` and forwards `/api` to `http://localhost:8080` (`proxy.conf.json`), so the stack must be running (`Start-Dev.ps1`) for API calls. Other scripts: `npm run lint`, `npm run test:ci`, `npm run build` (output in `src/web/dist/web/browser`).
 - **Interceptor order matters** (`app.config.ts`): loading, auth, error. The error interceptor is innermost, so the auth interceptor sees `ApiError`s and signs the user out on a 401, except for requests marked with `SILENT_AUTH_ERRORS` (the check of a typed key, `ApiClient.getMe(true)`).
 - **Showing errors:** pages should catch `ApiError`, show `error.fieldError('long_url')` next to a field and `error.userMessage` in a toast; `error.retryAfterSeconds` is set for 429 and 503.
 - **Keys:** `AuthService.acceptCredentials` stores a key returned by verify or rotate. After deleting the account or on any sign-out the key is removed from `sessionStorage`.
@@ -577,7 +579,7 @@ Security rules in the UI: never log or put the key in a URL; clear it on sign-ou
 
 Browser walk-through (Chrome-based integrated browser; dev server on 4300 with `/api` forwarded to a locally run Shortener API, real Cassandra and Redis, MailPit as the mail server): sign-up form → "check your inbox" → the mailed link opens `/app/verify`, the token disappears from the address bar, the key is shown once with a copy button and the header shows the user → "continue" → shortening a URL shows the new link at once and lists it → the statistics page loads → account page: typing the email enables "Delete my account" → deleting signs out, returns to the sign-in page and shows a confirmation; the API log shows the user and its 1 link deleted. **Not walked through by hand:** key rotation and recovery (covered by unit tests of the pages and by the backend smoke test in Phase 12), and a narrow-screen layout check.
 
-Pages (all in `web/src/app/pages/`, loaded on demand): `sign-in` (`/`, guarded by `guestGuard`), `request-mail` (`/signup` and `/recover`, one component driven by route data `mode`), `verify`, `links` (with `shorten-form`), `link-detail` (`/links/:code`), `account`. Shared: `shared/copy-button`, `shared/key-reveal`. Core additions: `guestGuard`, `describeError`, `short-links.ts`.
+Pages (all in `src/web/src/app/pages/`, loaded on demand): `sign-in` (`/`, guarded by `guestGuard`), `request-mail` (`/signup` and `/recover`, one component driven by route data `mode`), `verify`, `links` (with `shorten-form`), `link-detail` (`/links/:code`), `account`. Shared: `shared/copy-button`, `shared/key-reveal`. Core additions: `guestGuard`, `describeError`, `short-links.ts`.
 
 Deviations from the plan above:
 
@@ -597,7 +599,7 @@ Implementation notes for later phases:
 
 **Goal:** The web app and mail catcher run in the compose stack. **Status: done** (details after the exit criteria).
 
-1. `web/Dockerfile`: Node build stage → `nginx:1.27-alpine` serving the static files with a fallback to `index.html`, non-root, with security headers (`Content-Security-Policy` allowing only same-origin, `X-Content-Type-Options`, `Referrer-Policy: no-referrer`).
+1. `src/web/Dockerfile`: Node build stage → `nginx:1.27-alpine` serving the static files with a fallback to `index.html`, non-root, with security headers (`Content-Security-Policy` allowing only same-origin, `X-Content-Type-Options`, `Referrer-Policy: no-referrer`).
 2. Compose: `web` service (no host port), `mailpit` (pinned image; SMTP 1025, UI 8025) for dev, SMTP settings and `Web__PublicBaseUrl` passed to the Shortener API.
 3. `deploy/nginx/default.conf`: `location /app/` → `web`; `/app` redirects to `/app/`; `/api/` and `/{code}` unchanged.
 4. `Start-Dev.ps1`: waits for `web` and MailPit, prints their URLs.
@@ -615,13 +617,13 @@ Implementation notes for later phases:
 | Settings named `Web__PublicBaseUrl` | `Account__WebBaseUrl`, plus `SMTP_*` and `MAILPIT_UI_PORT` in `deploy/.env` (empty means the MailPit defaults) | Matches the options added in Phase 12. |
 | `angular.json` unchanged | Production build sets `inlineCritical: false` | Critical-CSS inlining adds an inline `onload` handler, which a strict `script-src 'self'` policy blocks. |
 | (not in the plan) | `absolute_redirect off` in both nginx configs | nginx only knows its container port, so `/app` would redirect to `http://localhost/app/` without the published port. |
-| (not in the plan) | `web/` added to the root `.dockerignore` | The .NET images use the repository root as build context; `node_modules` must not be sent. |
+| (not in the plan) | `src/web/` added to the root `.dockerignore` | The .NET images use the repository root as build context; `node_modules` must not be sent. |
 
 Implementation notes for later phases:
 - **Run it:** `./scripts/Start-Dev.ps1 -Build`, then open `http://localhost:8080/app/`; mails arrive at `http://localhost:8025`. The web container and MailPit have no other published ports.
 - **Real mail:** set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_STARTTLS=true`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `SMTP_FROM` in `deploy/.env`. The `shortener-api` service still lists `mailpit` in `depends_on`; remove both for a deployment without the catcher.
 - **Public address:** `Account__WebBaseUrl` and `Shortener__ShortUrlBase` both use `http://localhost:${PUBLIC_PORT}`; behind a real domain set them to the public HTTPS address.
-- **Content-Security-Policy:** `web/security-headers.conf` allows only the app's own origin; `style-src` has `'unsafe-inline'` because Angular writes component styles into `<style>` tags at run time. The policy was not exercised with a browser-console check; the app works under it (styles and API calls load).
+- **Content-Security-Policy:** `src/web/security-headers.conf` allows only the app's own origin; `style-src` has `'unsafe-inline'` because Angular writes component styles into `<style>` tags at run time. The policy was not exercised with a browser-console check; the app works under it (styles and API calls load).
 - **nginx config changes need a restart** (`docker compose -f deploy/docker-compose.yml restart nginx`): the file is mounted, and `up -d` does not notice a changed mount.
 - **Not done:** the exact browser CSP-violation check, TLS, and running `web` and MailPit in CI (Phase 16).
 

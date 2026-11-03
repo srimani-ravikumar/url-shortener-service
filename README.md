@@ -1,3 +1,5 @@
+<p align="center"><img src="src/web/public/logo.png" alt="TrySmartly URL Shortener" width="180"></p>
+
 |Before you begin| |
 |---|---|
 | **Written by** | Me, by hand. Short on purpose, so you read at least this page fully |

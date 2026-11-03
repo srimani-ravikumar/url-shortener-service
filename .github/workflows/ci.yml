@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: web
+        working-directory: src/web
     steps:
       - uses: actions/checkout@v4
 
@@ -86,7 +86,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: src/web/package-lock.json
 
       - name: Install
         run: npm ci
