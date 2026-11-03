@@ -1,9 +1,8 @@
 |Before you begin| |
 |---|---|
-| **Written by** | Me, by hand. AI wrote most of the code, not this page |
+| **Written by** | Me, by hand. Short on purpose, so you read at least this page fully |
 | **Written for** | Reviewers who have <5 minutes |
 | **Kept short by** | Tables, links to full docs, no filler |
-| **Every claim** | Has evidence in the [implementation plan](docs/03-implementation/implementation-plan.md) |
 | **Gaps** | Stated openly, not hidden |
 
 # URL Shortener Service (trysmartly.co)
@@ -11,7 +10,6 @@
 A URL shortener I built to answer one question: **how do you build a URL shortener that keeps redirecting even when its cache, database, or servers fail?** Not to replace bit.ly.
 
 If you're reviewing this as a hiring manager, architect, or senior engineer: this README is for you.
-
 
 ## Start Here..
 
