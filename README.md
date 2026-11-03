@@ -1,10 +1,12 @@
 # URL Shortener Service (trysmartly.co)
 
-A URL shortener I built to answer one question: **what does a design look like when the boring parts are allowed to fail?** Not to replace bit.ly.
+A URL shortener I built to answer one question: **how do you build a URL shortener that keeps redirecting even when its cache, database, or servers fail?** Not to replace bit.ly.
 
-If you're reviewing this as a hiring manager, architect, or senior engineer: this README is for you. I'll keep it short, and every claim below links to something you can run or read.
+If you're reviewing this as a hiring manager, architect, or senior engineer: this README is for you.
 
 > **Start here: [the full system architecture on one page](docs/02-design/architecture.md)** (diagram, services, data stores, observability).
+
+[![System architecture](docs/02-design/architecture-v1.png)](docs/02-design/architecture.md)
 
 ## Why I Built This..
 
@@ -19,16 +21,14 @@ I wanted measured answers, not diagrams. So I built it, broke it on purpose, and
 
 ## What I Was Solving For..
 
-| Problem | What I did | Proof you can rerun |
+| Problem | Approach | Result |
 |---|---|---|
-| **Unique, unguessable codes** | Redis `INCR` counter, then a keyed Feistel permutation, then Base62. A permutation cannot collide, so uniqueness is by construction, and `IF NOT EXISTS` is only the safety net | 400 links from 5 users gave 400 distinct codes, never longer than 7 characters |
-| **A lost counter must not re-issue old codes** | AOF persistence + a checkpoint in Cassandra + re-seed ahead by a safety gap on startup | `CounterReseed` scenario: delete the counter, restart, 10 new unique codes (counter came back at 100,136, not 126) |
-| **Fast redirects that survive a dead cache** | Redis cache in front of Cassandra, with fast-fail connection settings | `RedisOutage` scenario: Redis stopped, redirects still `302`, shortening answers `503`, recovery after restart |
-| **Clicks without slowing the redirect** | Three cheap Redis writes per click, a worker flushes batches to Cassandra counters and puts them back if the write fails | Cassandra stopped mid-traffic: nothing lost, total came out exact |
-| **Durability** | Cassandra with replicated writes, native TTL for expiry plus a grace period | `Durability` scenario: restart Redis and Cassandra, link and click count survive |
-| **Scale the 100:1 read side on its own** | Separate read and write services behind Nginx, stateless replicas | `LoadBalancing` scenario: 3 replicas all serve; with one stopped, 300 of 300 redirects still succeeded |
-| **A latency target I can measure** | OpenTelemetry traces, metrics and logs into Grafana, with five custom metrics | Server-side p99 of **42.7 ms** (p50 3.4 ms) from Prometheus, with the caveats written next to it |
-| **No secrets in logs** | Found a real leak while testing (long URLs with query strings logged at Debug level) and fixed it | Test that fails if the secret ever reaches a log line |
+| **Unique, unguessable codes** | Redis counter + keyed permutation + Base62 | No collisions by construction; 400 links gave 400 distinct codes |
+| **Counter lost or reset** | AOF persistence + Cassandra checkpoint + re-seed ahead on startup | Old codes are never re-issued after a reset |
+| **Redis goes down** | Cache in front of Cassandra, fast-fail connections | Redirects keep working (`302`); only shortening returns `503` |
+| **Clicks slowing redirects** | Cheap Redis writes, a worker batches them to Cassandra | Cassandra stopped mid-traffic, zero clicks lost |
+| **A replica dies** | Stateless redirectors behind Nginx | One of 3 stopped, 300 of 300 redirects still succeeded |
+| **Proving the latency target** | OpenTelemetry + Grafana | p99 **42.7 ms**, p50 3.4 ms |
 
 ## What's in the Codebase..
 
@@ -68,10 +68,10 @@ And what I did **not** prove: 99.99% availability and 35,000 redirects per secon
 
 ## "Did AI write this?"
 
-Yes, a large part of it, and I'd rather say so than have you guess. I used GitHub Copilot as a pair programmer: the requirements, the design and the technology choices are mine, and Copilot wrote most of the code, tests and scripts one phase at a time.
+Yes, mostly. I used Claude via Github Copilot as a pair programmer. The ***requirements, design and technology choices are mine***; Copilot wrote most of the code, tests and scripts.
 
-What I can offer instead of a claim is evidence you can check: every phase in the plan records what was built, what deviated from the plan and why, and how it was verified. The scenarios run against real containers, and [tech-decisions.md](docs/02-design/tech-decisions.md) states the cost of each choice.
+You don't have to trust me on it: every phase in the plan records what was built, what changed and how it was verified.
 
-> The skill that mattered most was deciding **what to measure, what to break, and what not to build**.
+> The skill that mattered most was deciding **knowing what not to build**.
 
 <p align="center"><strong>© 2026 Srimani. All rights reserved.</strong></p>

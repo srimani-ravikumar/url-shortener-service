@@ -19,3 +19,29 @@ scripts/demo/node_modules/
 ## OS / editor
 .DS_Store
 Thumbs.db
+
+## Web (Angular)
+web/dist/
+web/tmp/
+web/out-tsc/
+web/bazel-out/
+web/node_modules/
+web/.angular/cache
+web/.sass-cache/
+web/connect.lock
+web/libpeerconnection.log
+web/testem.log
+web/typings/
+web/__screenshots__/
+npm-debug.log
+yarn-error.log
+
+## IDEs and editors
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+.history/*
